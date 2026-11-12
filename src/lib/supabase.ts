@@ -9,11 +9,11 @@ export const supabase = supabaseConfigured
   : null;
 
 export const auth = {
-  async getUser() {
+  async getSessionUser() {
     if (!supabase) return null;
-    const { data, error } = await supabase.auth.getUser();
+    const { data, error } = await supabase.auth.getSession();
     if (error) throw error;
-    const u = data.user;
+    const u = data.session?.user;
     return u ? { userId: u.id, id: u.id, email: u.email || '', name: String(u.user_metadata?.full_name || u.user_metadata?.name || u.email || 'Equipe BFGS') } : null;
   },
   async signInWithRedirect() {
