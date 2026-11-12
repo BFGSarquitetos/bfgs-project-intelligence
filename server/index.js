@@ -11,7 +11,8 @@ app.use(express.json({ limit: '2mb' }));
 
 const PORT = Number(process.env.PORT || 3000);
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Railway variables can accidentally include pasted line breaks; normalize before creating headers.
+const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').replace(/\s+/g, '');
 const BUCKET = 'bfgs-project-files';
 const chunks = new Map();
 
@@ -40,7 +41,7 @@ async function requireUser(req, res, next) {
         name: error?.name || null,
         code: error?.code || null,
         status: error?.status || null,
-        message: error?.message || 'No user returned',
+        // Supabase error messages may echo header values; never log their raw message.
       }));
       return fail(res, 401, 'Sessão inválida ou expirada.');
     }
