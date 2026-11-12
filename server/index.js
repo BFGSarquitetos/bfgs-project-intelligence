@@ -123,38 +123,117 @@ app.post('/api/files/chunk', requireUser, async (req, res) => {
 });
 
 app.post('/api/files/complete', requireUser, async (req, res) => {
-  const body=req.body||{}, {scope,projectId='',fileId,fileName,mimeType,totalParts}=body;
-  const key=req.user.id+':'+fileId, entry=chunks.get(key);
-  if(!entry||entry.parts.size!==totalParts||entry.totalParts!==totalParts)return fail(res,409,'Envio incompleto: faltam blocos do arquivo.');
-  if(!['project','library'].includes(scope))return fail(res,400,'Destino inválido.');
-  if(scope==='project'&&!(await ownedProject(req.user.id,projectId)))return fail(res,404,'Projeto não encontrado ou sem permissão.');
-  try{
-    const ordered=[];for(let i=0;i<totalParts;i++){const part=entry.parts.get(i);if(!part)return fail(res,409,'Bloco '+i+' ausente.');ordered.push(part);}
-    const original=Buffer.concat(ordered), originalName=String(fileName||entry.fileName);
-    let candidates=[{name:originalName,buffer:original,kind:String(body.kind||entry.kind||'Arquivo')}];
-    if(String(body.kind||entry.kind)==='DXF'&&/\.zip$/i.test(originalName)){
-      const archive=await JSZip.loadAsync(original);
-      const entries=Object.values(archive.files).filter(x=>!x.dir&&/\.dxf$/i.test(x.name));
-      if(!entries.length)return fail(res,400,'O ZIP não contém arquivos DXF.');
-      candidates=await Promise.all(entries.map(async x=>({name:x.name.split('/').pop()||'arquivo.dxf',buffer:await x.async('nodebuffer'),kind:'DXF'})));
-    }else if(String(body.kind||entry.kind)==='DXF'&&!/\.dxf$/i.test(originalName))return fail(res,400,'Envie um DXF ou ZIP contendo um ou mais DXFs.');
-    const inserted=[];
-    for(const item of candidates){
-      const safeName=item.name.replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,140);
-      const storagePath=req.user.id+'/'+(scope==='project'?projectId:'library')+'/'+crypto.randomUUID()+'-'+safeName;
-      const {error:uploadError}=await admin.storage.from(BUCKET).upload(storagePath,item.buffer,{contentType:item.kind==='DXF'?'application/dxf':mimeType||entry.mimeType||'application/octet-stream',upsert:false});
-      if(uploadError)throw uploadError;
-      const {data,error}=await admin.from('bfgs_files').insert({
-        name:item.name,size:item.buffer.length,mime_type:item.kind==='DXF'?'application/dxf':mimeType||entry.mimeType||'application/octet-stream',
-        storage_path:storagePath,scope,project_id:scope==='project'?projectId:null,kind:item.kind,owner:req.user.id,
-        sha256:crypto.createHash('sha256').update(item.buffer).digest('hex')
+  const body = req.body || {};
+  const { scope, projectId = '', fileId, fileName, mimeType, totalParts } = body;
+  const key = req.user.id + ':' + fileId;
+  const entry = chunks.get(key);
+
+  if (!entry || entry.parts.size !== totalParts || entry.totalParts !== totalParts) {
+    return fail(res, 409, 'Envio incompleto: faltam blocos do arquivo.');
+  }
+  if (
+    scope !== entry.scope ||
+    String(projectId || '') !== String(entry.projectId || '') ||
+    String(fileName || entry.fileName) !== entry.fileName ||
+    String(body.kind || entry.kind) !== entry.kind ||
+    !['project', 'library'].includes(scope)
+  ) {
+    return fail(res, 409, 'Os dados de finalização não correspondem ao arquivo enviado.');
+  }
+
+  const uploadedPaths = [];
+  const insertedIds = [];
+  try {
+    if (scope === 'project' && !(await ownedProject(req.user.id, projectId))) {
+      return fail(res, 404, 'Projeto não encontrado ou sem permissão.');
+    }
+
+    const ordered = [];
+    for (let i = 0; i < totalParts; i++) {
+      const part = entry.parts.get(i);
+      if (!part) return fail(res, 409, 'Bloco ' + i + ' ausente.');
+      ordered.push(part);
+    }
+
+    const original = Buffer.concat(ordered);
+    const originalName = entry.fileName;
+    const kind = entry.kind;
+    const maxBytes = 512 * 1024 * 1024;
+    if (!original.length || original.length > maxBytes) {
+      return fail(res, 413, 'Arquivo vazio ou maior que o limite de 512 MB.');
+    }
+
+    let candidates = [{ name: originalName, buffer: original, kind }];
+    if (kind === 'DXF' && /\\.zip$/i.test(originalName)) {
+      const archive = await JSZip.loadAsync(original);
+      const entries = Object.values(archive.files).filter(file => !file.dir && /\\.dxf$/i.test(file.name));
+      if (!entries.length) return fail(res, 400, 'O ZIP não contém arquivos DXF.');
+      if (entries.length > 200) return fail(res, 413, 'O pacote excede o limite de 200 arquivos DXF.');
+      candidates = [];
+      let expandedBytes = 0;
+      for (const file of entries) {
+        const buffer = await file.async('nodebuffer');
+        expandedBytes += buffer.length;
+        if (expandedBytes > maxBytes) {
+          return fail(res, 413, 'O conteúdo extraído do ZIP ultrapassa 512 MB.');
+        }
+        candidates.push({
+          name: file.name.split('/').pop() || 'arquivo.dxf',
+          buffer,
+          kind: 'DXF',
+        });
+      }
+    } else if (kind === 'DXF' && !/\\.dxf$/i.test(originalName)) {
+      return fail(res, 400, 'Envie um DXF ou ZIP contendo um ou mais DXFs.');
+    }
+
+    const inserted = [];
+    for (const item of candidates) {
+      const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 140);
+      const storagePath = req.user.id + '/' +
+        (scope === 'project' ? projectId : 'library') + '/' +
+        crypto.randomUUID() + '-' + safeName;
+      const contentType = item.kind === 'DXF'
+        ? 'application/dxf'
+        : mimeType || entry.mimeType || 'application/octet-stream';
+
+      const { error: uploadError } = await admin.storage.from(BUCKET)
+        .upload(storagePath, item.buffer, { contentType, upsert: false });
+      if (uploadError) throw uploadError;
+      uploadedPaths.push(storagePath);
+
+      const { data, error } = await admin.from('bfgs_files').insert({
+        name: item.name,
+        size: item.buffer.length,
+        mime_type: contentType,
+        storage_path: storagePath,
+        scope,
+        project_id: scope === 'project' ? projectId : null,
+        kind: item.kind,
+        owner: req.user.id,
+        sha256: crypto.createHash('sha256').update(item.buffer).digest('hex'),
       }).select('*').single();
-      if(error){await admin.storage.from(BUCKET).remove([storagePath]);throw error;}
+
+      if (error) throw error;
+      insertedIds.push(data.id);
       inserted.push(mapFile(data));
     }
+
     chunks.delete(key);
-    return res.status(201).json({files:inserted,file:inserted[0],expandedArchive:candidates.length>1});
-  }catch(error){return fail(res,500,error.message||'Falha ao finalizar armazenamento.');}
+    return res.status(201).json({
+      files: inserted,
+      file: inserted[0],
+      expandedArchive: candidates.length > 1,
+    });
+  } catch (error) {
+    if (insertedIds.length) {
+      await admin.from('bfgs_files').delete().in('id', insertedIds).eq('owner', req.user.id);
+    }
+    if (uploadedPaths.length) {
+      await admin.storage.from(BUCKET).remove(uploadedPaths);
+    }
+    return fail(res, 500, error.message || 'Falha ao finalizar armazenamento.');
+  }
 });
 app.post('/api/files/delete', requireUser, async (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))].slice(0,200) : (req.body?.fileId ? [String(req.body.fileId)] : []);
