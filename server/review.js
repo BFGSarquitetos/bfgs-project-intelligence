@@ -106,7 +106,21 @@ export function registerReviewRoutes(app,{admin,requireUser,fail}) {
       if(!String(b.receipt||'').trim()||!Array.isArray(b.issues)||!b.issues.length)return fail(res,400,'Recibo e apontamentos são obrigatórios.');
       const f=await getFile(admin,req.user.id,b.ifcFileId);if(f.kind!=='IFC'||f.scope!=='project'||f.project_id!==b.projectId)return fail(res,400,'O IFC selecionado não pertence a este projeto.');
       const src=await ifcSource(await getBytes(admin,f),f.name),parsed=parseIfc(src.text),valid=new Set(parsed.elements.map(x=>x.guid));if(!valid.size)return fail(res,400,'Nenhum GUID IFC válido encontrado.');
-      for(const issue of b.issues){const gs=[String(issue.guid||'').trim(),...(Array.isArray(issue.relatedGuids)?issue.relatedGuids:String(issue.relatedGuids||'').split(/[;,\s]+'))].map(x=>String(x).trim()).filter(Boolean);if(!String(issue.title||'').trim()||!gs.length||gs.some(g=>!/^[0-9A-Za-z_$]{22}$/.test(g)||!valid.has(g)))return fail(res,400,'Título ou GUID ausente/inválido no IFC selecionado.');}
+      for (const issue of b.issues) {
+        const related = Array.isArray(issue.relatedGuids)
+          ? issue.relatedGuids
+          : String(issue.relatedGuids || '').split(/[;,\\s]+/);
+        const gs = [String(issue.guid || '').trim(), ...related]
+          .map(value => String(value).trim())
+          .filter(Boolean);
+        if (
+          !String(issue.title || '').trim() ||
+          !gs.length ||
+          gs.some(guid => !/^[0-9A-Za-z_$]{22}$/.test(guid) || !valid.has(guid))
+        ) {
+          return fail(res, 400, 'Título ou GUID ausente/inválido no IFC selecionado.');
+        }
+      }
       const zip=new JSZip();zip.file('bcf.version','<?xml version="1.0" encoding="UTF-8"?><Version VersionId="2.1"/>');
       let linked=0;
       for(let i=0;i<b.issues.length;i++){const issue=b.issues[i],topic=crypto.randomUUID(),view=crypto.randomUUID(),x=bcfXml(issue,topic,view,{ifcProjectGuid:parsed.projectGuid,ifcFileName:src.fileName,receipt:String(b.receipt).trim()},i);zip.folder(topic).file('markup.bcf',x.markup);zip.folder(topic).file('viewpoint.bcfv',x.view);linked+=x.linkedComponents;}
