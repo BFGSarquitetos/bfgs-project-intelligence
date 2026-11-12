@@ -34,7 +34,16 @@ async function requireUser(req, res, next) {
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
     if (!token) return fail(res, 401, 'Sessão não informada.');
     const { data, error } = await admin.auth.getUser(token);
-    if (error || !data?.user) return fail(res, 401, 'Sessão inválida ou expirada.');
+    if (error || !data?.user) {
+      // Log only Supabase's safe error metadata; never log the bearer token.
+      console.error('[auth] Supabase rejected bearer token:', JSON.stringify({
+        name: error?.name || null,
+        code: error?.code || null,
+        status: error?.status || null,
+        message: error?.message || 'No user returned',
+      }));
+      return fail(res, 401, 'Sessão inválida ou expirada.');
+    }
     req.user = data.user;
     next();
   } catch (error) {
