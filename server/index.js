@@ -1,0 +1,194 @@
+import express from 'express';
+import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
+import crypto from 'node:crypto';
+
+const app = express();
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json({ limit: '2mb' }));
+
+const PORT = Number(process.env.PORT || 3000);
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const BUCKET = 'bfgs-project-files';
+const chunks = new Map();
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+}
+const admin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+  : null;
+
+function fail(res, status, message) {
+  return res.status(status).json({ error: message });
+}
+async function requireUser(req, res, next) {
+  try {
+    if (!admin) return fail(res, 503, 'Backend Supabase não configurado.');
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+    if (!token) return fail(res, 401, 'Sessão não informada.');
+    const { data, error } = await admin.auth.getUser(token);
+    if (error || !data?.user) return fail(res, 401, 'Sessão inválida ou expirada.');
+    req.user = data.user;
+    next();
+  } catch (error) {
+    return fail(res, 500, error.message || 'Falha ao validar sessão.');
+  }
+}
+function mapProject(row) {
+  return {
+    id: row.id, name: row.name, code: row.code, client: row.client || '',
+    phase: row.phase || 'Anteprojeto', status: row.status || 'Em andamento',
+    owner: row.owner, createdAt: row.created_at,
+  };
+}
+function mapFile(row) {
+  return {
+    id: row.id, name: row.name, size: Number(row.size || 0),
+    mimeType: row.mime_type, path: row.storage_path, scope: row.scope,
+    projectId: row.project_id || '', kind: row.kind, owner: row.owner,
+    createdAt: row.created_at,
+  };
+}
+async function ownedProject(userId, projectId) {
+  if (!projectId) return null;
+  const { data, error } = await admin.from('bfgs_projects')
+    .select('*').eq('id', projectId).eq('owner', userId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'bfgs-project-intelligence-api', supabaseConfigured: Boolean(admin) });
+});
+
+app.get('/api/projects', requireUser, async (req, res) => {
+  const { data, error } = await admin.from('bfgs_projects').select('*')
+    .eq('owner', req.user.id).order('created_at', { ascending: false });
+  if (error) return fail(res, 500, error.message);
+  return res.json({ projects: (data || []).map(mapProject) });
+});
+
+app.post('/api/projects', requireUser, async (req, res) => {
+  const { name, code, client = '', phase = 'Anteprojeto' } = req.body || {};
+  if (!String(name || '').trim() || !String(code || '').trim()) {
+    return fail(res, 400, 'Nome e código do projeto são obrigatórios.');
+  }
+  const { data, error } = await admin.from('bfgs_projects').insert({
+    name: String(name).trim(), code: String(code).trim(), client: String(client || ''),
+    phase: String(phase || 'Anteprojeto'), status: 'Em andamento', owner: req.user.id,
+  }).select('*').single();
+  if (error) return fail(res, 500, error.message);
+  return res.status(201).json({ project: mapProject(data) });
+});
+
+app.get('/api/files', requireUser, async (req, res) => {
+  const { data, error } = await admin.from('bfgs_files').select('*')
+    .eq('owner', req.user.id).order('created_at', { ascending: false });
+  if (error) return fail(res, 500, error.message);
+  return res.json({ files: (data || []).map(mapFile) });
+});
+
+app.post('/api/files/chunk', requireUser, async (req, res) => {
+  const body = req.body || {};
+  const { scope, projectId = '', fileId, fileName, mimeType, partIndex, totalParts, content } = body;
+  if (!['project', 'library'].includes(scope) || !fileId || !fileName ||
+      !Number.isInteger(partIndex) || !Number.isInteger(totalParts) ||
+      totalParts < 1 || totalParts > 2000 || partIndex < 0 || partIndex >= totalParts ||
+      typeof content !== 'string') {
+    return fail(res, 400, 'Dados do bloco de arquivo inválidos.');
+  }
+  if (scope === 'project') {
+    const project = await ownedProject(req.user.id, projectId);
+    if (!project) return fail(res, 404, 'Projeto não encontrado ou sem permissão.');
+  }
+  const key = req.user.id + ':' + fileId;
+  let entry = chunks.get(key);
+  if (!entry) {
+    entry = { scope, projectId, fileName, mimeType: mimeType || 'application/octet-stream',
+      totalParts, parts: new Map(), kind: String(body.kind || 'Arquivo'), createdAt: Date.now() };
+    chunks.set(key, entry);
+  }
+  if (entry.fileName !== fileName || entry.totalParts !== totalParts || entry.scope !== scope) {
+    return fail(res, 409, 'Os blocos enviados não pertencem ao mesmo arquivo.');
+  }
+  entry.parts.set(partIndex, Buffer.from(content, 'base64'));
+  return res.json({ ok: true, received: entry.parts.size, totalParts });
+});
+
+app.post('/api/files/complete', requireUser, async (req, res) => {
+  const body = req.body || {};
+  const { scope, projectId = '', fileId, fileName, mimeType, totalParts } = body;
+  const key = req.user.id + ':' + fileId;
+  const entry = chunks.get(key);
+  if (!entry || entry.parts.size !== totalParts || entry.totalParts !== totalParts) {
+    return fail(res, 409, 'Envio incompleto: faltam blocos do arquivo.');
+  }
+  if (scope === 'project' && !(await ownedProject(req.user.id, projectId))) {
+    return fail(res, 404, 'Projeto não encontrado ou sem permissão.');
+  }
+  try {
+    const ordered = [];
+    for (let i = 0; i < totalParts; i++) {
+      const part = entry.parts.get(i);
+      if (!part) return fail(res, 409, 'Bloco ' + i + ' ausente.');
+      ordered.push(part);
+    }
+    const buffer = Buffer.concat(ordered);
+    const safeName = String(fileName || entry.fileName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 140);
+    const storagePath = req.user.id + '/' + (scope === 'project' ? projectId : 'library') +
+      '/' + crypto.randomUUID() + '-' + safeName;
+    const { error: uploadError } = await admin.storage.from(BUCKET).upload(storagePath, buffer, {
+      contentType: mimeType || entry.mimeType || 'application/octet-stream',
+      upsert: false,
+    });
+    if (uploadError) throw uploadError;
+    const { data, error } = await admin.from('bfgs_files').insert({
+      name: fileName || entry.fileName, size: buffer.length,
+      mime_type: mimeType || entry.mimeType || 'application/octet-stream',
+      storage_path: storagePath, scope, project_id: scope === 'project' ? projectId : null,
+      kind: String(body.kind || entry.kind || 'Arquivo'), owner: req.user.id,
+      sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+    }).select('*').single();
+    if (error) {
+      await admin.storage.from(BUCKET).remove([storagePath]);
+      throw error;
+    }
+    chunks.delete(key);
+    return res.status(201).json({ file: mapFile(data) });
+  } catch (error) {
+    return fail(res, 500, error.message || 'Falha ao finalizar armazenamento.');
+  }
+});
+
+app.post('/api/files/delete', requireUser, async (req, res) => {
+  const { fileId } = req.body || {};
+  if (!fileId) return fail(res, 400, 'fileId é obrigatório.');
+  const { data: file, error: findError } = await admin.from('bfgs_files')
+    .select('*').eq('id', fileId).eq('owner', req.user.id).maybeSingle();
+  if (findError) return fail(res, 500, findError.message);
+  if (!file) return fail(res, 404, 'Arquivo não encontrado ou sem permissão.');
+  const { error: storageError } = await admin.storage.from(BUCKET).remove([file.storage_path]);
+  if (storageError) return fail(res, 500, storageError.message);
+  const { error: deleteError } = await admin.from('bfgs_files').delete()
+    .eq('id', fileId).eq('owner', req.user.id);
+  if (deleteError) return fail(res, 500, deleteError.message);
+  return res.json({ ok: true });
+});
+
+// Review and BCF routes are intentionally not stubbed with fabricated findings.
+// They will be enabled only after their independent parsers/generators are ported and tested.
+for (const route of ['/api/review/dxf', '/api/review/ifc', '/api/review/executive', '/api/review/excel', '/api/bcf/generate']) {
+  app.post(route, requireUser, (_req, res) => fail(res, 501, 'Este módulo ainda está em migração e não foi habilitado nesta versão.'));
+}
+
+app.use((error, _req, res, _next) => {
+  console.error(error);
+  return fail(res, 500, 'Erro interno do servidor.');
+});
+
+app.listen(PORT, () => console.log('BFGS API listening on port ' + PORT));
