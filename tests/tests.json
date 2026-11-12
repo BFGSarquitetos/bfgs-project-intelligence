@@ -1,0 +1,107 @@
+[
+  {
+    "name": "Criar projeto e manter no workspace",
+    "sanity": true,
+    "viewport": "desktop",
+    "covers": [
+      "criação de projeto",
+      "persistência da lista de projetos",
+      "autenticação e isolamento por usuário"
+    ],
+    "description": "Verifica que a conta autenticada cria um projeto e o encontra novamente na própria listagem.",
+    "steps": [
+      "Entrar no portal com uma conta autorizada",
+      "Criar um projeto com nome e código únicos",
+      "Voltar à listagem de projetos"
+    ],
+    "expected": "O novo projeto aparece na lista da conta autenticada com nome, código, fase e status informados."
+  },
+  {
+    "name": "Executar análise crítica integrada com fontes do projeto",
+    "viewport": "desktop",
+    "covers": [
+      "endpoint autenticado de análise executiva",
+      "leitura de DXF IFC e planilhas XLSX CSV",
+      "cruzamento entre documentos e tabelas",
+      "apontamentos com evidência documentos impacto e recomendação",
+      "limitações explícitas para arquivos sem extração textual"
+    ],
+    "description": "Verifica a execução do módulo integrado e a rastreabilidade dos resultados.",
+    "steps": [
+      "Abrir projeto com DXF, IFC e XLSX armazenados",
+      "Clicar em Análise crítica integrada BFGS",
+      "Conferir resumo, cruzamentos, apontamentos e limitações"
+    ],
+    "expected": "A análise retorna as fontes lidas, cruzamentos e apontamentos rastreáveis; arquivos não extraídos aparecem nas limitações e não são tratados como revisados."
+  },
+  {
+    "name": "Emitir Excel no padrão de auditoria documental BFGS",
+    "viewport": "desktop",
+    "covers": [
+      "análise de DXFs já armazenados no projeto sem novo upload",
+      "liberação da exportação Excel após análise dos arquivos existentes",
+      "relatório técnico estruturado conforme o padrão BFGS",
+      "separação entre auditoria, evidências DXF e sinais automáticos",
+      "classificações sem inferência e rastreabilidade do arquivo de origem",
+      "separação entre revisão documental Excel e incompatibilidades geométricas BCF"
+    ],
+    "description": "Verifica que a exportação mantém evidências preliminares e não afirma conformidade sem cruzamento.",
+    "steps": [
+      "Abrir um projeto com DXF armazenado",
+      "Analisar DXFs existentes",
+      "Emitir Excel consolidado",
+      "Conferir as abas Capa, Resumo, Auditoria e Critérios BFGS"
+    ],
+    "expected": "O Excel preserva os sinais como não verificáveis até a confirmação técnica e mantém a origem de cada evidência."
+  },
+  {
+    "name": "Enviar múltiplas referências de formatos diferentes à nuvem",
+    "viewport": "desktop",
+    "covers": [
+      "seleção múltipla de arquivos na biblioteca",
+      "armazenamento de PDF CAD BIM planilha documento e imagem",
+      "identificação do tipo de arquivo na listagem"
+    ],
+    "description": "Verifica o armazenamento de referências de diferentes formatos.",
+    "steps": [
+      "Abrir Nuvem de referências",
+      "Selecionar PDF, DXF, IFC, XLSX e imagem",
+      "Aguardar o armazenamento"
+    ],
+    "expected": "Os arquivos aparecem na biblioteca com nome, tamanho, data e extensão."
+  },
+  {
+    "name": "Analisar IFC e gerar BCF 2.1 com GUIDs validados",
+    "viewport": "desktop",
+    "covers": [
+      "upload e leitura de IFC ou IFCZIP",
+      "extração de GUIDs",
+      "validação do GUID contra IFC original",
+      "BCF 2.1 com viewpoint e câmera",
+      "OriginatingSystem Archicad"
+    ],
+    "description": "Verifica o fluxo BIM para Archicad 29.",
+    "steps": [
+      "Enviar IFC",
+      "Confirmar elementos identificados",
+      "Criar apontamento com GUID real",
+      "Gerar BCF 2.1"
+    ],
+    "expected": "BCF é gerado com GUIDs validados e viewpoint com câmera."
+  },
+  {
+    "name": "Bloquear apontamento sem GUID IFC",
+    "viewport": "mobile",
+    "covers": [
+      "validação de GUID IFC obrigatório",
+      "bloqueio de BCF sem componente associado",
+      "responsividade"
+    ],
+    "description": "Verifica bloqueio de apontamentos inválidos.",
+    "steps": [
+      "Abrir projeto no celular",
+      "Tentar adicionar apontamento sem GUID válido"
+    ],
+    "expected": "O portal bloqueia a inclusão e não gera BCF inválido."
+  }
+]
