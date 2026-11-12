@@ -157,15 +157,21 @@ export default function App() {
   }
   useEffect(() => {
     let active = true;
-    // Subscribe before restoring the session so the OAuth SIGNED_IN event
-    // cannot be missed while Supabase processes the callback URL.
+    let authEventReceived = false;
+
+    // Listen for INITIAL_SESSION / SIGNED_IN before reading the persisted session.
     const { data: { subscription } } = auth.onAuthStateChange(u => {
-      if (active) setUser(u);
+      authEventReceived = true;
+      if (active) {
+        setUser(u);
+        setLoading(false);
+      }
     });
 
-    auth.getUser()
+    auth.getSessionUser()
       .then(u => {
-        if (active) setUser(u);
+        // A late initial read must not overwrite a newer OAuth event.
+        if (active && !authEventReceived) setUser(u);
       })
       .catch(e => {
         if (active) setNotice('Não foi possível restaurar a sessão: ' + e.message);
@@ -514,11 +520,19 @@ export default function App() {
           </p>
           <button
             className="primary wide"
-            onClick={() => auth.signInWithRedirect()}
+            onClick={async () => {
+              setNotice('');
+              try {
+                await auth.signInWithRedirect();
+              } catch (e: any) {
+                setNotice('Falha ao iniciar login com Google: ' + (e?.message || 'erro desconhecido'));
+              }
+            }}
           >
             Entrar no portal <ArrowRight size={17} />
           </button>
           <small>Acesso autenticado ao portal.</small>
+          {notice && <p role="alert" className="muted">{notice}</p>}
         </div>
         <div className="login-side">
           <span>BUILDING BETTER PROJECTS</span>
