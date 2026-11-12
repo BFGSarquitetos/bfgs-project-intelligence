@@ -1,0 +1,293 @@
+{
+  "version": "02-expandida",
+  "source": "Checklist de Projeto Arquitetônico — BFGS Arquitetura, Revisão 02 (PDF recebido em 12/11/2026; páginas impressas 2 e 5–15 disponíveis)",
+  "policy": {
+    "excludeFileReadErrorsFromProjectFindings": true,
+    "onlyReportProjectRelevantIssues": true,
+    "statuses": [
+      "confirmada",
+      "possivel",
+      "pendencia_informacao",
+      "problema_arquivo_diagnostico"
+    ],
+    "severity": [
+      "critica",
+      "alta",
+      "media",
+      "baixa",
+      "informativa"
+    ],
+    "evidenceRequired": true,
+    "humanReviewRequiredForNormativeOrVisualJudgment": true
+  },
+  "verificationModes": [
+    "automatica",
+    "cruzada",
+    "normativa",
+    "visual_tecnica"
+  ],
+  "sections": [
+    {
+      "id": "entrada",
+      "title": "Dados de entrada e levantamento",
+      "items": [
+        "Matrícula atualizada e identificação do imóvel",
+        "IPTU e inscrição cadastral",
+        "Certidão de uso e ocupação do solo",
+        "Levantamento planialtimétrico e cotas",
+        "Sondagem do solo, quando aplicável",
+        "Registro fotográfico do terreno e entorno",
+        "Confrontantes, divisas e acessos",
+        "Redes públicas disponíveis e infraestrutura"
+      ]
+    },
+    {
+      "id": "legal",
+      "title": "Estudo de viabilidade legal e urbanística",
+      "items": [
+        "Zoneamento e uso permitido",
+        "Coeficiente de aproveitamento",
+        "Taxa de ocupação",
+        "Taxa de permeabilidade mínima",
+        "Gabarito de altura",
+        "Recuos obrigatórios",
+        "Número mínimo de vagas",
+        "Exigências de calçada e passeio público",
+        "Enquadramento de bombeiros"
+      ]
+    },
+    {
+      "id": "civil",
+      "title": "Plantas civis — térreo, superior e cobertura",
+      "items": [
+        "Referência de nível e cotas",
+        "Alinhamento entre pavimentos",
+        "Posição de pilares e prumadas",
+        "Cotas externas e internas",
+        "Portas e janelas: dimensões, sentido e peitoril",
+        "Varandas e sacadas",
+        "Escadas: posição, largura e sentido",
+        "Shafts e prumadas",
+        "Identificação dos ambientes",
+        "Indicação de cortes",
+        "Mobiliário validado",
+        "Guarda-corpos e proteções"
+      ]
+    },
+    {
+      "id": "cobertura",
+      "title": "Planta de cobertura",
+      "items": [
+        "Sentido e inclinação das águas",
+        "Percentual de inclinação",
+        "Níveis de cobertura e diferenças entre panos",
+        "Tipo de cobertura e materiais",
+        "Calhas, rufos e captação pluvial",
+        "Acesso e manutenção da cobertura",
+        "Posição de equipamentos e condensadoras"
+      ]
+    },
+    {
+      "id": "cortes",
+      "title": "Cortes",
+      "items": [
+        "Níveis e cotas",
+        "Pé-direito e alturas",
+        "Espessuras construtivas",
+        "Cobertura: inclinação e estrutura",
+        "Aberturas e esquadrias",
+        "Forro e rebaixos",
+        "Indicação de materiais"
+      ]
+    },
+    {
+      "id": "fachadas",
+      "title": "Elevações e fachadas",
+      "items": [
+        "Níveis e pavimentos",
+        "Proporção e cotas dos elementos",
+        "Portas e janelas",
+        "Materiais e acabamentos",
+        "Elementos construtivos e guarda-corpos",
+        "Platibanda e cobertura",
+        "Terreno e rampas",
+        "Identificação de materiais"
+      ]
+    },
+    {
+      "id": "acessibilidade",
+      "title": "Acessibilidade — NBR 9050",
+      "items": [
+        "Rota acessível contínua",
+        "Largura livre mínima",
+        "Áreas de giro",
+        "Faixa livre de circulação",
+        "Rampas e inclinações",
+        "Corrimãos em alturas e afastamentos",
+        "Banheiro acessível: transferência e manobra"
+      ]
+    },
+    {
+      "id": "layout",
+      "title": "Plantas de layout — térreo e superior",
+      "items": [
+        "Mobiliário completo e dimensões",
+        "Espaços de uso e circulação",
+        "Relação de portas e janelas",
+        "Zonas de uso",
+        "Identificação dos ambientes",
+        "Posição de equipamentos fixos",
+        "Ergonomia e espaço de armários",
+        "Sentido de uso e fluxos",
+        "Compatibilização com estrutura",
+        "Escala e proporção"
+      ]
+    },
+    {
+      "id": "piso",
+      "title": "Paginação de piso",
+      "items": [
+        "Nome dos ambientes e cotas",
+        "Tipo de piso e dimensões",
+        "Sentido de assentamento",
+        "Escala e juntas",
+        "Arremates e recortes",
+        "Compatibilização com arquitetura e marcenaria",
+        "Rodapés e transições",
+        "Ralos e áreas molhadas",
+        "Paginação desenhada em todos os ambientes"
+      ]
+    },
+    {
+      "id": "forro",
+      "title": "Paginação de forro",
+      "items": [
+        "Paredes e divisórias",
+        "Cotas principais e níveis",
+        "Tipo de forro e acabamento",
+        "Definição de forro liso, modular ou especial",
+        "Modulação e alinhamento",
+        "Encontros e juntas",
+        "Pé-direito e rebaixos"
+      ]
+    },
+    {
+      "id": "revestimentos",
+      "title": "Paginação de revestimentos",
+      "items": [
+        "Nome e identificação do revestimento",
+        "Escala e tipo de paginação",
+        "Ambientes, paredes e elevações",
+        "Dimensões e acabamento",
+        "Paginação desenhada e sentido de assentamento",
+        "Recortes e arremates",
+        "Compatibilização com portas, janelas e nichos",
+        "Áreas molhadas",
+        "Rodabanca e frontão",
+        "Elevações internas e detalhes ampliados",
+        "Encontro de materiais",
+        "Compatibilização com soleiras e instalações"
+      ]
+    },
+    {
+      "id": "luminotecnica",
+      "title": "Planta luminotécnica",
+      "items": [
+        "Título, escala e identificação dos ambientes",
+        "Layout e forro compatibilizados",
+        "Luminárias posicionadas e identificadas",
+        "Simbologia e legenda",
+        "Tipo de luminária, potência e temperatura de cor",
+        "Tipo de instalação e embutimento",
+        "Interruptores e teclas identificados",
+        "Automação e dimerização",
+        "Compatibilização elétrica e arquitetônica",
+        "Chamada e detalhes de luminárias",
+        "Iluminação para detalhes e sancas",
+        "Cálculo luminotécnico por ambiente",
+        "Iluminação de emergência quando aplicável"
+      ]
+    },
+    {
+      "id": "eletrica",
+      "title": "Pontos elétricos",
+      "items": [
+        "Nome dos ambientes e cotas",
+        "Tomadas de uso geral e específico",
+        "Tomadas de bancada para equipamentos especiais",
+        "Compatibilização com layout e equipamentos"
+      ]
+    },
+    {
+      "id": "hidraulica",
+      "title": "Pontos hidráulicos",
+      "items": [
+        "Nome e identificação dos ambientes",
+        "Cotas principais e locação dos pontos",
+        "Pontos de lavatório, cuba, tanque, máquina e torneiras",
+        "Altura dos pontos e diâmetros",
+        "Água quente e alimentação de aquecedor",
+        "Sistemas de aquecimento",
+        "Esgoto e ventilação",
+        "Caixas sifonadas, ralos e quedas",
+        "Louças e metais compatibilizados",
+        "Alturas e distâncias de eixos",
+        "Especificação de água fria, quente e esgoto"
+      ]
+    },
+    {
+      "id": "gas",
+      "title": "Pontos de gás",
+      "items": [
+        "Localização da central de GLP ou ponto de GN",
+        "Distâncias de segurança",
+        "Pontos de consumo e equipamentos",
+        "Traçado da tubulação e ventilação",
+        "Compatibilização com NBR 13103 e NBR 15526",
+        "Detecção de gás e exaustão quando aplicável"
+      ]
+    },
+    {
+      "id": "incendio",
+      "title": "Prevenção e combate a incêndio — PPCI/AVCB",
+      "items": [
+        "Classificação de ocupação e risco",
+        "Saídas e rotas de emergência",
+        "Extintores e distâncias máximas",
+        "Hidrantes e reserva técnica",
+        "Iluminação de emergência",
+        "Detecção e alarme quando exigido",
+        "Compartimentação e portas corta-fogo",
+        "Memorial e formulários aplicáveis"
+      ]
+    },
+    {
+      "id": "esquadrias",
+      "title": "Caixilhos e quadro de esquadrias",
+      "items": [
+        "Número do conjunto e localização",
+        "Distâncias e cotas de portas e janelas",
+        "Identificação e código compatível com o quadro",
+        "Diferenciação de portas, janelas e painéis fixos"
+      ]
+    },
+    {
+      "id": "ar",
+      "title": "Ar-condicionado — térreo e pavimento superior",
+      "items": [
+        "Nome do projeto e ambientes",
+        "Equipamentos e condensadoras localizados",
+        "Drenos e tubulações",
+        "Tipo de equipamento e capacidade BTU/h",
+        "Modelo e sistema de instalação",
+        "Diâmetros de tubulação e isolamento",
+        "Bitolas e caminho da infraestrutura",
+        "Interferências com estrutura e passagens",
+        "Pontos de elétrica e alimentação",
+        "Compatibilização com marcenaria e forro",
+        "Detalhes de dreno e passagem",
+        "Carga térmica e dimensionamento"
+      ]
+    }
+  ]
+}
