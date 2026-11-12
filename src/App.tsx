@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '@appdeploy/client';
-import { auth } from '@appdeploy/client';
+import { api } from './lib/api';
+import { auth } from './lib/supabase';
 import {
   FolderPlus,
   Files,
