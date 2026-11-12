@@ -15,14 +15,12 @@ import {
   AlertCircle,
   FileSpreadsheet,
   FileText,
-  Layers3,
   LogOut,
   LoaderCircle,
   X,
   Download,
   Trash2,
   Building2,
-  Clock3,
   ShieldCheck,
   ChevronRight,
 } from 'lucide-react';
@@ -115,7 +113,6 @@ export default function App() {
   const [ifcTotalElements, setIfcTotalElements] = useState(0);
   const [ifcSearch, setIfcSearch] = useState('');
   const [receipt, setReceipt] = useState('');
-  const [filter, setFilter] = useState('Todos');
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [removedFileIds, setRemovedFileIds] = useState<string[]>([]);
 
@@ -826,7 +823,7 @@ export default function App() {
                     <div className="eyebrow">ENTREGA 01</div>
                     <h2>Revisão documental</h2>
                   </div>
-                  <badge>DXF</badge>
+                  <span className="badge">DXF</span>
                 </div>
                 <p>
                   Envie vários arquivos DXF, um por disciplina. Cada arquivo será
@@ -836,10 +833,10 @@ export default function App() {
                 <label className="upload-zone">
                   <Upload />
                   <b>Selecionar DXFs das disciplinas</b>
-                  <span>Selecione vários .dxf de uma vez · um arquivo por disciplina</span>
+                  <span>Selecione vários .dxf ou um .zip com as disciplinas</span>
                   <input
                     type="file"
-                    accept=".dxf"
+                    accept=".dxf,.zip"
                     multiple
                     disabled={busy}
                     onChange={async e => {
@@ -906,7 +903,7 @@ export default function App() {
                     <div className="eyebrow">ENTREGA 02</div>
                     <h2>Compatibilização BIM</h2>
                   </div>
-                  <badge>IFC / BCF</badge>
+                  <span className="badge">IFC / BCF</span>
                 </div>
                 <p>
                   Envie o IFC para registrar a versão analisada. Associe cada
