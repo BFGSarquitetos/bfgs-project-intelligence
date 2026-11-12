@@ -174,9 +174,9 @@ app.post('/api/files/complete', requireUser, async (req, res) => {
     }
 
     let candidates = [{ name: originalName, buffer: original, kind }];
-    if (kind === 'DXF' && /\\.zip$/i.test(originalName)) {
+    if (kind === 'DXF' && /\.zip$/i.test(originalName)) {
       const archive = await JSZip.loadAsync(original);
-      const entries = Object.values(archive.files).filter(file => !file.dir && /\\.dxf$/i.test(file.name));
+      const entries = Object.values(archive.files).filter(file => !file.dir && /\.dxf$/i.test(file.name));
       if (!entries.length) return fail(res, 400, 'O ZIP não contém arquivos DXF.');
       if (entries.length > 200) return fail(res, 413, 'O pacote excede o limite de 200 arquivos DXF.');
       candidates = [];
@@ -193,7 +193,7 @@ app.post('/api/files/complete', requireUser, async (req, res) => {
           kind: 'DXF',
         });
       }
-    } else if (kind === 'DXF' && !/\\.dxf$/i.test(originalName)) {
+    } else if (kind === 'DXF' && !/\.dxf$/i.test(originalName)) {
       return fail(res, 400, 'Envie um DXF ou ZIP contendo um ou mais DXFs.');
     }
 
