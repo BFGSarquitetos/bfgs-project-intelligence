@@ -238,9 +238,13 @@ export default function App() {
         kind,
       });
       await refresh();
-      setNotice(file.name + ' armazenado com sucesso.');
-      if (kind === 'DXF') await runDxf(completed.data.file.id);
-      if (kind === 'IFC') await runIfc(completed.data.file.id);
+      const savedFiles = completed.data.files || (completed.data.file ? [completed.data.file] : []);
+      setNotice(savedFiles.length > 1 ? savedFiles.length + ' arquivos extraídos e armazenados do pacote ' + file.name + '.' : file.name + ' armazenado com sucesso.');
+      if (kind === 'DXF') {
+        for (const saved of savedFiles) await runDxf(saved.id);
+        if (savedFiles.length > 1) setNotice(savedFiles.length + ' DXFs extraídos, armazenados e analisados individualmente. Confira os sinais antes de emitir o Excel.');
+      }
+      if (kind === 'IFC' && savedFiles[0]) await runIfc(savedFiles[0].id);
     } catch (e: any) {
       setNotice(e.message || 'Falha no envio. Tente novamente.');
     } finally {
