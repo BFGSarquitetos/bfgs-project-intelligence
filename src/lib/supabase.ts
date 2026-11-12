@@ -29,7 +29,7 @@ export const auth = {
   },
   onAuthStateChange(callback: (user: any) => void) {
     if (!supabase) return { data: { subscription: { unsubscribe() {} } } };
-    return supabase.auth.onAuthStateChange(async (_event, session) => {
+    return supabase.auth.onAuthStateChange((_event, session) => {
       const u = session?.user;
       callback(u ? { userId: u.id, id: u.id, email: u.email || '', name: String(u.user_metadata?.full_name || u.user_metadata?.name || u.email || 'Equipe BFGS') } : null);
     });
