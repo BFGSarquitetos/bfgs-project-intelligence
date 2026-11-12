@@ -263,7 +263,15 @@ app.post('/api/files/delete', requireUser, async (req, res) => {
 
 registerReviewRoutes(app, { admin, requireUser, fail });
 
-app.post('/api/review/executive', requireUser, async (req, res) => {\n  try {\n    const result = await runExecutiveReview({ admin, userId: req.user.id, projectId: String(req.body?.projectId || '') });\n    return res.json(result);\n  } catch (error) {\n    console.error('[executive-review] failed:', JSON.stringify({ status: error.status || 500, providerStatus: error.providerStatus || null, message: error.message || 'unknown' }));\n    return fail(res, error.status || 500, error.message || 'Falha na análise integrada.');\n  }\n});
+app.post('/api/review/executive', requireUser, async (req, res) => {
+  try {
+    const result = await runExecutiveReview({ admin, userId: req.user.id, projectId: String(req.body?.projectId || '') });
+    return res.json(result);
+  } catch (error) {
+    console.error('[executive-review] failed:', JSON.stringify({ status: error.status || 500, providerStatus: error.providerStatus || null, message: error.message || 'unknown' }));
+    return fail(res, error.status || 500, error.message || 'Falha na análise integrada.');
+  }
+});
 app.use(express.static('dist'));
 app.use((req,res,next) => { if(req.method!=='GET'||req.path.startsWith('/api/')||req.path==='/health') return next(); res.sendFile(process.cwd()+'/dist/index.html'); });
 
