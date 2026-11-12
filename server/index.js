@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
 import JSZip from 'jszip';
 import { registerReviewRoutes } from './review.js';
+import { runExecutiveReview } from './executive-review.js';
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
@@ -262,7 +263,7 @@ app.post('/api/files/delete', requireUser, async (req, res) => {
 
 registerReviewRoutes(app, { admin, requireUser, fail });
 
-app.post('/api/review/executive', requireUser, (_req, res) => fail(res, 501, 'A revisão executiva com IA ainda depende da migração do serviço de análise.'));
+app.post('/api/review/executive', requireUser, async (req, res) => {\n  try {\n    const result = await runExecutiveReview({ admin, userId: req.user.id, projectId: String(req.body?.projectId || '') });\n    return res.json(result);\n  } catch (error) {\n    console.error('[executive-review] failed:', JSON.stringify({ status: error.status || 500, providerStatus: error.providerStatus || null, message: error.message || 'unknown' }));\n    return fail(res, error.status || 500, error.message || 'Falha na análise integrada.');\n  }\n});
 app.use(express.static('dist'));
 app.use((req,res,next) => { if(req.method!=='GET'||req.path.startsWith('/api/')||req.path==='/health') return next(); res.sendFile(process.cwd()+'/dist/index.html'); });
 
