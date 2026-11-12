@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
+import { registerReviewRoutes } from './review.js';
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
@@ -166,26 +167,23 @@ app.post('/api/files/complete', requireUser, async (req, res) => {
 });
 
 app.post('/api/files/delete', requireUser, async (req, res) => {
-  const { fileId } = req.body || {};
-  if (!fileId) return fail(res, 400, 'fileId é obrigatório.');
-  const { data: file, error: findError } = await admin.from('bfgs_files')
-    .select('*').eq('id', fileId).eq('owner', req.user.id).maybeSingle();
-  if (findError) return fail(res, 500, findError.message);
-  if (!file) return fail(res, 404, 'Arquivo não encontrado ou sem permissão.');
-  const { error: storageError } = await admin.storage.from(BUCKET).remove([file.storage_path]);
-  if (storageError) return fail(res, 500, storageError.message);
-  const { error: deleteError } = await admin.from('bfgs_files').delete()
-    .eq('id', fileId).eq('owner', req.user.id);
-  if (deleteError) return fail(res, 500, deleteError.message);
-  return res.json({ ok: true });
+  const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))].slice(0,200) : (req.body?.fileId ? [String(req.body.fileId)] : []);
+  const projectId = String(req.body?.projectId || '');
+  if (!ids.length) return fail(res, 400, 'Selecione ao menos um arquivo.');
+  const { data: files, error: findError } = await admin.from('bfgs_files').select('*').in('id',ids).eq('owner',req.user.id);
+  if (findError) return fail(res,500,findError.message);
+  const owned = (files || []).filter(f => !projectId || (f.scope==='project' && f.project_id===projectId));
+  if (owned.length !== ids.length) return fail(res,404,'Não foi possível localizar todos os arquivos selecionados neste projeto.');
+  const { error: storageError } = await admin.storage.from(BUCKET).remove(owned.map(f=>f.storage_path));
+  if (storageError) return fail(res,500,storageError.message);
+  const { error: deleteError } = await admin.from('bfgs_files').delete().in('id',ids).eq('owner',req.user.id);
+  if (deleteError) return fail(res,500,deleteError.message);
+  return res.json({ok:true,deleted:ids.length,message:ids.length+' arquivo(s) excluído(s) com sucesso.'});
 });
 
-// Review and BCF routes are intentionally not stubbed with fabricated findings.
-// They will be enabled only after their independent parsers/generators are ported and tested.
-for (const route of ['/api/review/dxf', '/api/review/ifc', '/api/review/executive', '/api/review/excel', '/api/bcf/generate']) {
-  app.post(route, requireUser, (_req, res) => fail(res, 501, 'Este módulo ainda está em migração e não foi habilitado nesta versão.'));
-}
+registerReviewRoutes(app, { admin, requireUser, fail });
 
+app.post('/api/review/executive', requireUser, (_req, res) => fail(res, 501, 'A revisão executiva com IA ainda depende da migração do serviço de análise.'));
 app.use((error, _req, res, _next) => {
   console.error(error);
   return fail(res, 500, 'Erro interno do servidor.');
