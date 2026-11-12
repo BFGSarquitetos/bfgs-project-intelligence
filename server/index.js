@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
+import JSZip from 'jszip';
 import { registerReviewRoutes } from './review.js';
 
 const app = express();
@@ -174,7 +175,7 @@ registerReviewRoutes(app, { admin, requireUser, fail });
 
 app.post('/api/review/executive', requireUser, (_req, res) => fail(res, 501, 'A revisão executiva com IA ainda depende da migração do serviço de análise.'));
 app.use(express.static('dist'));
-app.get('*', (_req,res,next) => { if (_req.path.startsWith('/api/') || _req.path==='/health') return next(); res.sendFile(process.cwd()+'/dist/index.html'); });
+app.use((req,res,next) => { if(req.method!=='GET'||req.path.startsWith('/api/')||req.path==='/health') return next(); res.sendFile(process.cwd()+'/dist/index.html'); });
 
 app.use((error, _req, res, _next) => {
   console.error(error);
