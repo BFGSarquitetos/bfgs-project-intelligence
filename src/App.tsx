@@ -156,17 +156,36 @@ export default function App() {
     }
   }
   useEffect(() => {
-    auth
-      .getUser()
-      .then(async u => {
-        setUser(u);
-        if (u) await refresh();
+    let active = true;
+    // Subscribe before restoring the session so the OAuth SIGNED_IN event
+    // cannot be missed while Supabase processes the callback URL.
+    const { data: { subscription } } = auth.onAuthStateChange(u => {
+      if (active) setUser(u);
+    });
+
+    auth.getUser()
+      .then(u => {
+        if (active) setUser(u);
       })
-      .catch(e =>
-        setNotice('Não foi possível restaurar a sessão: ' + e.message)
-      )
-      .finally(() => setLoading(false));
+      .catch(e => {
+        if (active) setNotice('Não foi possível restaurar a sessão: ' + e.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    refresh().catch(e =>
+      setNotice('Login reconhecido, mas não foi possível carregar os projetos: ' + e.message)
+    );
+  }, [user?.userId]);
 
   async function createProject(e: React.FormEvent) {
     e.preventDefault();
