@@ -117,7 +117,8 @@ function parseDxf(text: string) {
       4: 'Milímetros',
       5: 'Centímetros',
       6: 'Metros',
-    };  const placeholders = texts.filter(t =>
+    };
+  const placeholders = texts.filter(t =>
     /<(NOME|DATA|CLIENTE)|TBD|A DEFINIR|REVISÃO\\s*#|####|\\{\\{/.test(t)
   );
   const findings: any[] = [];
@@ -236,7 +237,8 @@ async function fileRecord(id: string, owner: string) {
   if (listed) return listed;
   throw new Error('Arquivo não encontrado ou sem permissão.');
 }
-async function ownedProject(id: string, owner: string) {  // Primeiro tenta a chave física do banco, usada nos registros novos.
+async function ownedProject(id: string, owner: string) {
+  // Primeiro tenta a chave física do banco, usada nos registros novos.
   const [direct] = await db.get<Project>('bfgs_projects', [id]);
   if (direct && direct.owner === owner) return direct;
 
@@ -355,7 +357,8 @@ export const handler = router({
       if (failedRecords) {
         return error(
           'O banco não confirmou a exclusão de ' + failedRecords + ' registro(s). Nenhum arquivo físico foi removido.',
-          500        );
+          500
+        );
       }
       let failedStorage = 0;
       try {
@@ -474,7 +477,8 @@ export const handler = router({
         uid(id) +
         '-' +
         safe(storedFileName);
-      const [ok] = await storage.write([        {
+      const [ok] = await storage.write([
+        {
           path,
           content: encode(binary),
           contentType: b.kind === 'DXF' ? 'application/dxf' : String(b.mimeType || 'application/octet-stream'),
@@ -593,7 +597,8 @@ export const handler = router({
             } else limitations.push(f.name + ': ZIP sem IFC reconhecido.');
           } else if (['xlsx', 'xls', 'csv'].includes(ext)) {
             const wb = XLSX.read(binary, { type: 'buffer' });
-            content = wb.SheetNames.map(name => 'ABA ' + name + '\n' +              XLSX.utils.sheet_to_csv(wb.Sheets[name])).join('\n\n').slice(0, 16000);
+            content = wb.SheetNames.map(name => 'ABA ' + name + '\n' +
+              XLSX.utils.sheet_to_csv(wb.Sheets[name])).join('\n\n').slice(0, 16000);
           } else if (ext === 'txt') content = binary.toString('utf8').slice(0, 16000);
           else limitations.push(f.name + ': armazenado, mas ainda sem extração textual nesta etapa (' + ext.toUpperCase() + ').');
           if (content) sources.push({
@@ -712,7 +717,8 @@ export const handler = router({
         ['Arquivos analisados', reports.length],
         ['Sinais automáticos', signals.length],
         ['Itens conformes confirmados', 0],
-        ['Não conformidades confirmadas', 0],        ['Divergências checklist × referência confirmadas', 0],
+        ['Não conformidades confirmadas', 0],
+        ['Divergências checklist × referência confirmadas', 0],
         ['Itens não verificáveis / aguardando cruzamento', signals.length],
         [],
         ['IMPORTANTE', 'Os zeros significam que esta execução automática não confirmou esses estados; não significam que o projeto esteja conforme.'],
@@ -831,7 +837,8 @@ export const handler = router({
       const validGuids = new Set(parsedIfc.elements.map(element => element.guid));
       if (!validGuids.size) return error('Nenhum elemento com GUID IFC válido foi identificado no arquivo.', 400);
       for (const issue of b.issues) {
-        const linkedGuids = [...new Set([          String(issue?.guid || '').trim(),
+        const linkedGuids = [...new Set([
+          String(issue?.guid || '').trim(),
           ...(Array.isArray(issue?.relatedGuids) ? issue.relatedGuids : String(issue?.relatedGuids || '').split(/[;,\\s]+/))
             .map((value: any) => String(value).trim()).filter(Boolean),
         ])];
