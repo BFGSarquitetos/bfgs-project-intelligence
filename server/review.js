@@ -5,6 +5,17 @@ import crypto from 'node:crypto';
 const now = () => new Date().toISOString();
 const esc = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 
+function cleanDxfText(value) {
+  return String(value || '')
+    .replace(/\\P/gi, ' ')
+    .replace(/\\~|\\U\+[0-9A-F]{4}/gi, m => m.toUpperCase() === '\\~' ? ' ' : String.fromCharCode(parseInt(m.slice(3), 16)))
+    .replace(/\\[AaCcFfHhQqTtWw][^;]*;/g, '')
+    .replace(/[{}]/g, '')
+    .replace(/%%[cCdDpP]/g, m => ({'%%c':'Ø','%%C':'Ø','%%d':'°','%%D':'°','%%p':'±','%%P':'±'})[m] || m)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function parseDxf(text) {
   const lines = text.split(/\r?\n/), entities = [];
   let cur = null;
@@ -15,32 +26,72 @@ export function parseDxf(text) {
     else if(cur) cur.pairs.push([code,val]);
   }
   if(cur) entities.push(cur);
-  const counts={}, layers={}, texts=[], xrefs=[], rasters=[];
+  const counts={}, layers={}, texts=[], xrefs=[], rasters=[], blocks=[];
   let dims=0,textCount=0;
   for(const e of entities) {
     if(['SECTION','ENDSEC','EOF','TABLE','ENDTAB','ENDBLK','SEQEND'].includes(e.type)) continue;
     counts[e.type]=(counts[e.type]||0)+1;
-    const layer=e.pairs.find(p=>p[0]===8)?.[1]||'0'; layers[layer]=(layers[layer]||0)+1;
+    const layer=e.pairs.find(p=>p[0]===8)?.[1]||'0';
+    layers[layer]=(layers[layer]||0)+1;
     if(e.type==='DIMENSION') dims++;
     if(['TEXT','MTEXT','ATTRIB','ATTDEF'].includes(e.type)) {
-      textCount++; const t=e.pairs.filter(p=>p[0]===1||p[0]===3).map(p=>p[1]).join('').replace(/\\P/g,' ').trim(); if(t) texts.push(t);
+      textCount++;
+      const raw=e.pairs.filter(p=>p[0]===1||p[0]===3).map(p=>p[1]).join('');
+      const cleaned=cleanDxfText(raw);
+      if(cleaned) texts.push(cleaned);
     }
-    if(e.type==='IMAGE'||e.type==='IMAGEDEF'){const p=e.pairs.find(x=>x[0]===1)?.[1];if(p)rasters.push(p);}
-    if(e.type==='BLOCK'){const flags=Number(e.pairs.find(p=>p[0]===70)?.[1]||0);if(flags&12)xrefs.push(e.pairs.find(p=>p[0]===1)?.[1]||'XREF sem caminho');}
+    if(e.type==='IMAGE'||e.type==='IMAGEDEF') {
+      const p=e.pairs.find(x=>x[0]===1)?.[1];
+      if(p) rasters.push(p);
+    }
+    if(e.type==='BLOCK') {
+      const flags=Number(e.pairs.find(p=>p[0]===70)?.[1]||0);
+      const name=e.pairs.find(p=>p[0]===2)?.[1]||'';
+      if(flags&12) xrefs.push(e.pairs.find(p=>p[0]===1)?.[1]||name||'XREF sem caminho');
+      if(name) blocks.push(name);
+    }
   }
-  const header=(key,group)=>{const at=lines.findIndex(x=>x.trim()===key);if(at<0)return '';for(let i=at+1;i<Math.min(at+8,lines.length-1);i+=2)if(Number(lines[i].trim())===group)return lines[i+1].trim();return '';};
+  const header=(key,group)=>{const at=lines.findIndex(x=>x.trim()===key);if(at<0)return '';for(let i=at+1;i<Math.min(at+10,lines.length-1);i+=2)if(Number(lines[i].trim())===group)return lines[i+1].trim();return '';};
   const version=header('$ACADVER',1), unit=Number(header('$INSUNITS',70)||0);
   const unitNames={0:'Não definida',1:'Polegadas',2:'Pés',4:'Milímetros',5:'Centímetros',6:'Metros'};
-  const placeholders=texts.filter(t=>/<(NOME|DATA|CLIENTE)|TBD|A DEFINIR|REVISÃO\s*#|####|\{\{/.test(t));
+  const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+  const normalized=texts.map(norm);
+  const placeholders=texts.filter(t=>/\b(?:TBD|A DEFINIR|MODELO A DEFINIR|PENDENTE|XXXX+)\b/i.test(t) || /\b(?:D|E|J|P|R)-XX\b/i.test(t));
   const findings=[];
-  if(xrefs.length)findings.push({title:'Referências externas ainda vinculadas',severity:'Alta',status:'Corrigir antes da emissão',source:xrefs.join(', '),recommendation:'Incorporar as referências ou publicar o DXF consolidado e repetir a leitura.'});
-  if(placeholders.length)findings.push({title:'Campos ou textos provisórios encontrados',severity:'Média',status:'Conferência necessária',source:placeholders.slice(0,10).join(' | '),recommendation:'Conferir carimbo, data, revisão, identificação e notas antes da emissão.'});
-  if(!dims&&textCount)findings.push({title:'Cotas nativas não identificadas',severity:'Baixa',status:'Não verificável automaticamente',source:'Há textos/anotações, mas nenhuma entidade DIMENSION nativa foi reconhecida.',recommendation:'As cotas podem estar explodidas em linhas e textos. Conferir medidas críticas; não classificar ausência como erro confirmado.'});
-  if(rasters.length)findings.push({title:'Referências raster vinculadas',severity:'Baixa',status:'Conferência de pacote',source:rasters.join(', '),recommendation:'Incluir imagens vinculadas no pacote ou confirmar incorporação.'});
-  if(!findings.length)findings.push({title:'Leitura estrutural concluída',severity:'Informativo',status:'Sem alerta automático nesta leitura',source:'Não foram detectados XREFs ou campos provisórios pelos critérios básicos.',recommendation:'A ausência de alertas não significa aprovação técnica da prancha.'});
-  return {version,units:unitNames[unit]||'Código '+unit,entityCount:Object.values(counts).reduce((a,b)=>a+b,0),layerCount:Object.keys(layers).length,dimensionCount:dims,textEntities:textCount,entityCounts:Object.entries(counts).sort((a,b)=>b[1]-a[1]),layerCounts:Object.entries(layers).sort((a,b)=>b[1]-a[1]),findings,texts:texts.slice(0,300)};
+  if(xrefs.length)findings.push({title:'Referências externas (XREF) vinculadas',severity:'Média',status:'Conferência de entrega',source:[...new Set(xrefs)].join(', '),recommendation:'Verificar se os arquivos referenciados acompanham a entrega ou se devem ser incorporados ao DXF.'});
+  if(placeholders.length)findings.push({title:'Especificações ou campos provisórios',severity:'Média',status:'Possível pendência documental',source:[...new Set(placeholders)].slice(0,20).join(' | '),recommendation:'Confirmar se os campos são intencionais nesta fase; se a prancha estiver em emissão, completar os dados.'});
+  if(rasters.length)findings.push({title:'Referências raster vinculadas',severity:'Informativa',status:'Conferência de pacote',source:[...new Set(rasters)].join(', '),recommendation:'Confirmar se as imagens estão incorporadas ou se os arquivos externos acompanham o DXF.'});
+  const titleBlockTerms=['PROJETO','CLIENTE','ENDERECO','ENDEREÇO','ESCALA','DATA','REVISAO','REVISÃO','PRANCHA','DESENHO'];
+  const titleBlockEvidence=titleBlockTerms.filter(term=>normalized.some(t=>t.includes(term)));
+  const scaleMatches=texts.filter(t=>/\b(?:ESCALA|1\s*:\s*\d+)\b/i.test(t)).slice(0,20);
+  const dateMatches=texts.filter(t=>/\b\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/.test(t)).slice(0,20);
+  const disciplineTerms={
+    arquitetura:['PLANTA BAIXA','PLANTA CIVIL','LAYOUT','CORTE','FACHADA','ELEVAÇÃO','COBERTURA'],
+    piso:['PAGINAÇÃO DE PISO','PISO','RODAPE','RODAPÉ','SOLEIRA'],
+    forro:['FORRO','SANCA','SANCA'],
+    luminotecnica:['LUMINOTECNICA','LUMINOTÉCNICA','LUMINARIA','LUMINÁRIA','SPOT','PLAFON','TEMPERATURA DE COR'],
+    eletrica:['PONTO ELETRICO','PONTO ELÉTRICO','TOMADA','INTERRUPTOR','QUADRO DE CARGAS'],
+    hidraulica:['HIDRAULICA','HIDRÁULICA','AGUA FRIA','ÁGUA FRIA','ESGOTO','RALO','TUBULACAO','TUBULAÇÃO'],
+    esquadrias:['ESQUADRIA','PORTA','JANELA','QUADRO DE ESQUADRIAS'],
+    ar:['AR CONDICIONADO','AR-CONDICIONADO','BTU','CONDENSADORA','EVAPORADORA'],
+    incendio:['INCENDIO','INCÊNDIO','EXTINTOR','HIDRANTE','EMERGENCIA','EMERGÊNCIA'],
+    acessibilidade:['ACESSIBILIDADE','NBR 9050','RAMPAS','SANITARIO ACESSIVEL','SANITÁRIO ACESSÍVEL']
+  };
+  const disciplineEvidence=Object.entries(disciplineTerms).map(([discipline,terms])=>({
+    discipline,
+    terms:terms.filter(term=>normalized.some(t=>t.includes(norm(term))))
+  })).filter(x=>x.terms.length);
+  return {
+    version,units:unitNames[unit]||'Código '+unit,
+    entityCount:Object.values(counts).reduce((a,b)=>a+b,0),
+    layerCount:Object.keys(layers).length,dimensionCount:dims,textEntities:textCount,
+    entityCounts:Object.entries(counts).sort((a,b)=>b[1]-a[1]),
+    layerCounts:Object.entries(layers).sort((a,b)=>b[1]-a[1]),
+    findings,texts:texts.slice(0,5000),
+    titleBlockEvidence,scaleMatches,dateMatches,disciplineEvidence,
+    xrefs:[...new Set(xrefs)],rasters:[...new Set(rasters)],blocks:[...new Set(blocks)].slice(0,500)
+  };
 }
-
 export function parseIfc(text) {
   const elements=[]; let projectGuid='';
   const pattern=/#(\d+)\s*=\s*(IFC[A-Z0-9_]+)\s*\(\s*'([0-9A-Za-z_$]{22})'\s*,\s*[^,]*,\s*('(?:[^']|'')*'|\$)/g;
