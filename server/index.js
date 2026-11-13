@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import JSZip from 'jszip';
 import { registerReviewRoutes } from './review.js';
 import { prepareExecutiveReviewPackage } from './executive-review.js';
+import { registerIntegratedReviewRoutes } from './integrated-review.js';
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
@@ -262,6 +263,7 @@ app.post('/api/files/delete', requireUser, async (req, res) => {
 });
 
 registerReviewRoutes(app, { admin, requireUser, fail });
+registerIntegratedReviewRoutes(app, { admin, requireUser, fail });
 
 app.post('/api/review/package', requireUser, async (req, res) => {
   try {
