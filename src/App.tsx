@@ -96,7 +96,6 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [dxfResults, setDxfResults] = useState<any[]>([]);
-  const [executiveReview, setExecutiveReview] = useState<any>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [issueDraft, setIssueDraft] = useState({
     title: '',
@@ -431,20 +430,22 @@ export default function App() {
     }
   }
 
-  async function runExecutiveReview() {
+  async function prepareChatGPTReview() {
     if (!selected) return;
     setBusy(true);
-    setExecutiveReview(null);
-    setNotice('Lendo documentos do projeto e preparando o cruzamento técnico…');
+    setNotice('Lendo os arquivos e montando o pacote técnico BFGS…');
     try {
-      const r = await api.post('/api/review/executive', { projectId: selected.id });
-      setExecutiveReview(r.data);
-      setNotice('Análise integrada concluída: ' + r.data.analyzedSourceCount +
-        ' fontes extraídas e ' + (r.data.findings || []).length +
-        ' apontamentos para validação. Confira as limitações antes de emitir parecer.');
+      const r = await api.post('/api/review/package', { projectId: selected.id });
+      const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (selected.code || 'projeto') + '-pacote-analise-chatgpt.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      setNotice('Pacote preparado: ' + r.data.analyzedSourceCount + ' fontes extraídas. Anexe o JSON a uma conversa do ChatGPT e solicite a análise crítica conforme o checklist BFGS.');
     } catch (e: any) {
-      setNotice('Não foi possível concluir a análise integrada: ' +
-        (e?.response?.data?.error || e.message || 'erro desconhecido'));
+      setNotice('Não foi possível preparar o pacote: ' + (e.message || 'erro desconhecido'));
     } finally {
       setBusy(false);
     }
@@ -1114,34 +1115,10 @@ export default function App() {
                 <span>{projectFiles.length} arquivos</span>
               </div>
               <div className="toolbar">
-                <button className="primary" type="button" disabled={busy || !projectFiles.length} onClick={runExecutiveReview}>
-                  <ClipboardCheck size={15} /> Análise crítica integrada BFGS
+                <button className="primary" type="button" disabled={busy || !projectFiles.length} onClick={prepareChatGPTReview}>
+                  <ClipboardCheck size={15} /> Preparar análise para ChatGPT
                 </button>
-                {executiveReview && <span>{executiveReview.findings.length} apontamentos · {executiveReview.analyzedSourceCount} fontes</span>}
               </div>
-              {executiveReview && (
-                <div className="panel" style={{ marginBottom: 18 }}>
-                  <div className="eyebrow">ANÁLISE CRÍTICA EXECUTIVA · {executiveReview.project.phase}</div>
-                  <h3>Resumo da revisão</h3>
-                  <p>{executiveReview.executiveSummary}</p>
-                  <b>Cruzamentos realizados</b>
-                  {(executiveReview.crossChecks || []).map((item: any, i: number) => (
-                    <p key={i}><b>{item.pair}:</b> {item.result} — {item.evidence}</p>
-                  ))}
-                  <b>Apontamentos para validação</b>
-                  {(executiveReview.findings || []).map((item: any) => (
-                    <div className="issue-item" key={item.id}>
-                      <div><b>{item.id} · {item.title}</b>
-                        <small>{item.status} · {item.severity} · {(item.documents || []).join(' / ')}</small>
-                        <small>{item.evidence}</small><small>Impacto: {item.impact}</small>
-                        <small>Recomendação: {item.recommendation}</small>
-                      </div>
-                    </div>
-                  ))}
-                  {(executiveReview.limitations || []).length > 0 && <p className="muted">Limitações de leitura: {executiveReview.limitations.join(' | ')}</p>}
-                  <p className="hint">{executiveReview.warning}</p>
-                </div>
-              )}
               {projectFiles.some(file => file.kind === 'DXF' || file.name.toLowerCase().endsWith('.dxf')) && (
                 <div className="toolbar">
                   <button
