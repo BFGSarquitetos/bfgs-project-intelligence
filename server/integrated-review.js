@@ -1,4 +1,4 @@
-import path from 'node:path';
+import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
 import { parseDxf, parseIfc } from './review.js';
 
@@ -150,7 +150,13 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
       }
       const selectedIfc=ifcFiles[ifcFiles.length-1];
       const ifcBytes=await readBytes(admin,selectedIfc);
-      const ifcText=ifcBytes.toString('utf8');
+      let ifcText=ifcBytes.toString('utf8');
+      if (/\\.(ifczip|zip)$/i.test(selectedIfc.name)) {
+        const archive=await JSZip.loadAsync(ifcBytes);
+        const entries=Object.values(archive.files).filter(x=>!x.dir && /\\.ifc$/i.test(x.name));
+        if (entries.length !== 1) return fail(res,400,entries.length ? 'O pacote contém mais de um IFC. Envie um IFC por arquivo.' : 'O pacote não contém arquivo IFC.');
+        ifcText=await entries[0].async('string');
+      }
       const ifc=parseIfc(ifcText);
       if(!ifc.elements.length) return fail(res,422,'O IFC armazenado não retornou elementos com GUID. Verifique se o arquivo é IFC STEP válido.');
       const counts=ifc.elements.reduce((o,x)=>{o[x.ifcClass]=(o[x.ifcClass]||0)+1;return o;},{});
