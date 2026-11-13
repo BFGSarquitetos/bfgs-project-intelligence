@@ -80,7 +80,7 @@ function workbookBase64(project, docs, ifc, findings, dims, textRows) {
   };
   const high = findings.filter(x => x.severity === 'Alta' || x.severity === 'Crítica').length;
   sheet('Resumo', [
-    ['BFGS PROJECT INTELLIGENCE — COMPATIBILIZAÇÃO DXF × IFC'],
+    ['BFGS PROJECT INTELLIGENCE — REVISÃO DOCUMENTAL DXF'],
     ['Projeto', project.name], ['Código', project.code], ['Cliente', project.client || 'Não informado'],
     ['Fase', project.phase || 'Não informada'], ['Data da análise', now()],
     ['DXFs lidos', docs.length], ['Entidades DXF', docs.reduce((n, d) => n + d.entityCount, 0)],
@@ -133,7 +133,6 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
       const dxfFiles = files.filter(f => /\.dxf$/i.test(f.name) || f.kind === 'DXF');
       const ifcFiles = files.filter(f => /\.(ifc|ifczip)$/i.test(f.name) || f.kind === 'IFC');
       if (!dxfFiles.length) return fail(res,400,'Envie ao menos um DXF para iniciar a análise documental.');
-      if (!ifcFiles.length) return fail(res,400,'Envie também o IFC do projeto para executar a compatibilização DXF × IFC.');
       const docs=[], allDims=[], textRows=[], findings=[], limitations=[];
       for (const file of dxfFiles) {
         try {
@@ -148,43 +147,17 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
           if(placeholders.length) addFinding(findings,{kind:'Pendência documental',severity:'Média',discipline:'A identificar',source:file.name,evidence:unique(placeholders).slice(0,20).join(' | '),analysis:'Texto provisório ou campo não definido identificado no DXF.',action:'Completar a especificação e conferir as pranchas relacionadas.',status:'Confirmado no texto extraído'});
         } catch(e) { limitations.push(file.name+': falha de leitura ('+String(e.message||'erro')+').'); }
       }
-      const selectedIfc=ifcFiles[ifcFiles.length-1];
-      const ifcBytes=await readBytes(admin,selectedIfc);
-      let ifcText=ifcBytes.toString('utf8');
-      if (/\.(ifczip|zip)$/i.test(selectedIfc.name)) {
-        const archive=await JSZip.loadAsync(ifcBytes);
-        const entries=Object.values(archive.files).filter(x=>!x.dir && /\.ifc$/i.test(x.name));
-        if (entries.length !== 1) return fail(res,400,entries.length ? 'O pacote contém mais de um IFC. Envie um IFC por arquivo.' : 'O pacote não contém arquivo IFC.');
-        ifcText=await entries[0].async('string');
-      }
-      const ifc=parseIfc(ifcText);
-      if(!ifc.elements.length) return fail(res,422,'O IFC armazenado não retornou elementos com GUID. Verifique se o arquivo é IFC STEP válido.');
-      const counts=ifc.elements.reduce((o,x)=>{o[x.ifcClass]=(o[x.ifcClass]||0)+1;return o;},{});
-      const guidCounts=ifc.elements.reduce((o,x)=>{o[x.guid]=(o[x.guid]||0)+1;return o;},{});
-      const dupGuids=Object.entries(guidCounts).filter(([,n])=>n>1);
-      if(dupGuids.length) addFinding(findings,{kind:'Integridade IFC',severity:'Alta',discipline:'BIM',source:selectedIfc.name,evidence:dupGuids.slice(0,30).map(([g,n])=>g+' ('+n+' ocorrências)').join(' | '),analysis:'GUIDs IFC repetidos no inventário extraído.',action:'Revisar a exportação e a unicidade dos GlobalIds antes de gerar BCF.',status:'Confirmado no arquivo IFC'});
-      const unnamed=ifc.elements.filter(x=>!String(x.name||'').trim());
-      if(unnamed.length) addFinding(findings,{kind:'Qualidade de dados IFC',severity:'Baixa',discipline:'BIM',source:selectedIfc.name,evidence:unnamed.length+' elementos sem nome no campo IfcRoot.Name.',analysis:'Elementos IFC sem nome dificultam rastreabilidade por descrição.',action:'Conferir classificação, nome e propriedades dos elementos no modelo de autoria.',status:'Confirmado no arquivo IFC'});
-      const codeOccurrences={};
-      for(const doc of docs) {
-        const matches=(doc.texts||[]).join(' ').match(/\b(?:PA|PM|J|PJ|PE|PV|P|J)\s*[-_]?\s*\d{1,3}\b/gi)||[];
-        for(const code of matches) (codeOccurrences[code.toUpperCase()] ||= []).push(doc.name);
-      }
-      const ifcNames=norm(ifc.elements.map(x=>x.name).join(' '));
-      for(const [code,refs] of Object.entries(codeOccurrences)) {
-        if(unique(refs).length>1 && !ifcNames.includes(norm(code))) addFinding(findings,{kind:'Cruzamento DXF × IFC',severity:'Média',discipline:'Esquadrias / Arquitetura',source:unique(refs).join(' | ')+' × '+selectedIfc.name,evidence:'Código '+code+' identificado em mais de um DXF; não localizado nos nomes dos elementos IFC.',analysis:'O código pode estar armazenado em propriedade IFC não lida pelo extrator ou representado por outro nome. Indício, não divergência confirmada.',action:'Conferir código no quadro de esquadrias e nas propriedades IFC correspondentes.',status:'Possível — validar propriedades IFC'});
-      }
-      const doorCount=counts.IFCDOOR||0, windowCount=counts.IFCWINDOW||0;
-      if(doorCount||windowCount) addFinding(findings,{kind:'Inventário de esquadrias IFC',severity:'Informativa',discipline:'Arquitetura',source:selectedIfc.name,evidence:'IFCDOOR: '+doorCount+'; IFCWINDOW: '+windowCount+'.',analysis:'Contagem de instâncias IFC identificadas. Não equivale à contagem de tipos/códigos do quadro DXF.',action:'Usar a aba Inventário IFC para cruzar cada instância com o quadro e a planta.',status:'Informativo — cruzamento manual por código'});
-      const headerMatch=ifcText.match(/FILE_DESCRIPTION\s*\(\s*\((.*?)\)\s*,/s);
-      const header=headerMatch?headerMatch[1].replace(/'/g,'').slice(0,1200):'Cabeçalho de exportação não identificado.';
+      // A revisão documental é exclusivamente DXF. O IFC é lido separadamente
+      // apenas no fluxo de compatibilização/geração BCF.
+      const ifc={projectGuid:'',elements:[]};
+      const header='IFC não utilizado nesta etapa. O modelo BIM é reservado para o fluxo BCF.';
       const excel=workbookBase64(project,docs,{...ifc,header},findings,allDims,textRows);
       return res.json({
         project:{name:project.name,code:project.code,phase:project.phase},
-        dxfCount:docs.length,ifcFile:selectedIfc.name,ifcElements:ifc.elements.length,
+        dxfCount:docs.length,ifcFile:null,ifcElements:0,
         dimensions:allDims.length,findings,limitations,base64:excel,
         generatedAt:now(),status:'analysis_complete',
-        message:'Análise integrada concluída. Alertas e limitações estão discriminados; a ausência de evidência não foi classificada como conformidade.'
+        message:'Revisão documental DXF concluída. O IFC não é necessário nesta etapa e será utilizado somente para vincular elementos e gerar BCF.'
       });
     } catch(e) {
       console.error('[integrated-review]', JSON.stringify({message:e.message||'unknown'}));
