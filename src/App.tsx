@@ -1128,8 +1128,8 @@ export default function App() {
                 <span>{projectFiles.length} arquivos</span>
               </div>
               <div className="toolbar">
-                <button className="primary" type="button" disabled={busy || !projectFiles.some(f => f.kind === 'DXF' || f.name.toLowerCase().endsWith('.dxf')) || !projectFiles.some(f => f.kind === 'IFC' || /\\.(ifc|ifczip)$/i.test(f.name))} onClick={runIntegratedReview}>
-                  <ClipboardCheck size={15} /> Executar análise completa DXF + IFC
+                <button className="primary" type="button" disabled={busy || !projectFiles.some(f => f.kind === 'DXF' || f.name.toLowerCase().endsWith('.dxf'))} onClick={runIntegratedReview}>
+                  <ClipboardCheck size={15} /> Executar revisão documental dos DXFs
                 </button>
               </div>
               {integratedReview && (
@@ -1138,7 +1138,7 @@ export default function App() {
                     <b><CheckCircle2 size={16} /> Análise integrada concluída</b>
                     <span>{integratedReview.findings?.length || 0} apontamentos</span>
                   </div>
-                  <p>{integratedReview.dxfCount} DXF(s) · {integratedReview.ifcElements} elementos IFC · {integratedReview.dimensions} cotas nativas reconhecidas</p>
+                  <p>{integratedReview.dxfCount} DXF(s) analisados · {integratedReview.dimensions} cotas nativas reconhecidas</p>
                   {(integratedReview.findings || []).map((item: any, index: number) => (
                     <div className="finding" key={index}>
                       <span className="finding-severity">{item.severity}</span>
