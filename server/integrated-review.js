@@ -67,8 +67,8 @@ function extractNumericNotes(texts) {
   return out;
 }
 function addFinding(list, item) {
-  const key = [item.title, item.source, item.status].join('|');
-  if (!list.some(x => [x.title, x.source, x.status].join('|') === key)) list.push(item);
+  const key = [item.analysis || item.title, item.source, item.status].join('|');
+  if (!list.some(x => [x.analysis || x.title, x.source, x.status].join('|') === key)) list.push(item);
 }
 function workbookBase64(project, docs, ifc, findings, dims, textRows) {
   const wb = XLSX.utils.book_new();
@@ -140,7 +140,7 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
           const bytes=await readBytes(admin,file), source=bytes.toString('latin1'), parsed=parseDxf(source);
           const dimensions=extractDimensionRecords(source);
           const refs=[...(parsed.findings||[]).filter(x=>/refer[eê]ncia|raster/i.test(x.title)).map(x=>x.source)];
-          docs.push({name:file.name,units:parsed.units,version:parsed.version,entityCount:parsed.entityCount,layerCount:parsed.layerCount,textCount:parsed.textEntities,dimensions,entityCounts:parsed.entityCounts||[],references:refs});
+          docs.push({name:file.name,units:parsed.units,version:parsed.version,entityCount:parsed.entityCount,layerCount:parsed.layerCount,textCount:parsed.textEntities,dimensions,entityCounts:parsed.entityCounts||[],references:refs,texts:parsed.texts||[]});
           for (const dim of dimensions) allDims.push({...dim,file:file.name});
           for (const note of extractNumericNotes(parsed.texts||[])) textRows.push({file:file.name,...note});
           for (const finding of parsed.findings||[]) addFinding(findings,{kind:'Sinal estrutural DXF',severity:finding.severity||'Baixa',discipline:'A identificar',source:file.name,evidence:finding.source||finding.title,analysis:finding.title,action:finding.recommendation||'Conferir no arquivo de origem.',status:finding.status||'Conferência necessária'});
@@ -165,11 +165,10 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
       if(dupGuids.length) addFinding(findings,{kind:'Integridade IFC',severity:'Alta',discipline:'BIM',source:selectedIfc.name,evidence:dupGuids.slice(0,30).map(([g,n])=>g+' ('+n+' ocorrências)').join(' | '),analysis:'GUIDs IFC repetidos no inventário extraído.',action:'Revisar a exportação e a unicidade dos GlobalIds antes de gerar BCF.',status:'Confirmado no arquivo IFC'});
       const unnamed=ifc.elements.filter(x=>!String(x.name||'').trim());
       if(unnamed.length) addFinding(findings,{kind:'Qualidade de dados IFC',severity:'Baixa',discipline:'BIM',source:selectedIfc.name,evidence:unnamed.length+' elementos sem nome no campo IfcRoot.Name.',analysis:'Elementos IFC sem nome dificultam rastreabilidade por descrição.',action:'Conferir classificação, nome e propriedades dos elementos no modelo de autoria.',status:'Confirmado no arquivo IFC'});
-      const dxfAllText=docs.map(d=>({file:d.name,text:norm((d._texts||[]).join(' '))}));
       const codeOccurrences={};
-      for(const row of textRows) {
-        const matches=row.text.match(/\\b(?:PA|PM|J|PJ|PE|PV|P|J)\\s*[-_]?\\s*\\d{1,3}\\b/gi)||[];
-        for(const code of matches) (codeOccurrences[code.toUpperCase()] ||= []).push(row.file);
+      for(const doc of docs) {
+        const matches=(doc.texts||[]).join(' ').match(/\\b(?:PA|PM|J|PJ|PE|PV|P|J)\\s*[-_]?\\s*\\d{1,3}\\b/gi)||[];
+        for(const code of matches) (codeOccurrences[code.toUpperCase()] ||= []).push(doc.name);
       }
       const ifcNames=norm(ifc.elements.map(x=>x.name).join(' '));
       for(const [code,refs] of Object.entries(codeOccurrences)) {
