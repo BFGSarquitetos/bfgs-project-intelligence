@@ -4,9 +4,9 @@ import { parseDxf, parseIfc } from './review.js';
 
 const BUCKET = 'bfgs-project-files';
 const now = () => new Date().toISOString();
-const norm = value => String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+const norm = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const unique = values => [...new Set(values)];
-const dimText = value => String(value || '').replace(/\\s+/g, ' ').trim();
+const dimText = value => String(value || '').replace(/\s+/g, ' ').trim();
 
 async function getProjectFiles(admin, userId, projectId) {
   const { data: project, error: pe } = await admin.from('bfgs_projects')
@@ -25,7 +25,7 @@ async function readBytes(admin, file) {
   return Buffer.from(await data.arrayBuffer());
 }
 function extractDimensionRecords(text) {
-  const lines = text.split(/\\r?\\n/), result = [];
+  const lines = text.split(/\r?\n/), result = [];
   let current = null;
   for (let i = 0; i + 1 < lines.length; i += 2) {
     const code = Number(lines[i].trim()), value = lines[i + 1].trimEnd();
@@ -59,8 +59,8 @@ function extractNumericNotes(texts) {
   const out = [];
   for (const text of texts) {
     const s = dimText(text);
-    if (/\\b(?:cota|dimens[aã]o|largura|altura|comprimento|\\d+(?:[.,]\\d+)\\s*(?:mm|cm|m)\\b)/i.test(s)) {
-      const nums = s.match(/\\d+(?:[.,]\\d+)?\\s*(?:mm|cm|m)?/gi) || [];
+    if (/\b(?:cota|dimens[aã]o|largura|altura|comprimento|\d+(?:[.,]\d+)\s*(?:mm|cm|m)\b)/i.test(s)) {
+      const nums = s.match(/\d+(?:[.,]\d+)?\s*(?:mm|cm|m)?/gi) || [];
       if (nums.length) out.push({ text: s, values: nums.join(' | ') });
     }
   }
@@ -130,8 +130,8 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
   app.post('/api/review/complete', requireUser, async (req,res) => {
     try {
       const { project, files } = await getProjectFiles(admin, req.user.id, String(req.body?.projectId || ''));
-      const dxfFiles = files.filter(f => /\\.dxf$/i.test(f.name) || f.kind === 'DXF');
-      const ifcFiles = files.filter(f => /\\.(ifc|ifczip)$/i.test(f.name) || f.kind === 'IFC');
+      const dxfFiles = files.filter(f => /\.dxf$/i.test(f.name) || f.kind === 'DXF');
+      const ifcFiles = files.filter(f => /\.(ifc|ifczip)$/i.test(f.name) || f.kind === 'IFC');
       if (!dxfFiles.length) return fail(res,400,'Envie ao menos um DXF para iniciar a análise documental.');
       if (!ifcFiles.length) return fail(res,400,'Envie também o IFC do projeto para executar a compatibilização DXF × IFC.');
       const docs=[], allDims=[], textRows=[], findings=[], limitations=[];
@@ -144,16 +144,16 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
           for (const dim of dimensions) allDims.push({...dim,file:file.name});
           for (const note of extractNumericNotes(parsed.texts||[])) textRows.push({file:file.name,...note});
           for (const finding of parsed.findings||[]) addFinding(findings,{kind:'Sinal estrutural DXF',severity:finding.severity||'Baixa',discipline:'A identificar',source:file.name,evidence:finding.source||finding.title,analysis:finding.title,action:finding.recommendation||'Conferir no arquivo de origem.',status:finding.status||'Conferência necessária'});
-          const placeholders=(parsed.texts||[]).filter(t=>/A DEFINIR|TBD|MDF\\s*XX|MODELO\\s*A\\s*DEFINIR|\\bXX\\b/i.test(t));
+          const placeholders=(parsed.texts||[]).filter(t=>/A DEFINIR|TBD|MDF\s*XX|MODELO\s*A\s*DEFINIR|\bXX\b/i.test(t));
           if(placeholders.length) addFinding(findings,{kind:'Pendência documental',severity:'Média',discipline:'A identificar',source:file.name,evidence:unique(placeholders).slice(0,20).join(' | '),analysis:'Texto provisório ou campo não definido identificado no DXF.',action:'Completar a especificação e conferir as pranchas relacionadas.',status:'Confirmado no texto extraído'});
         } catch(e) { limitations.push(file.name+': falha de leitura ('+String(e.message||'erro')+').'); }
       }
       const selectedIfc=ifcFiles[ifcFiles.length-1];
       const ifcBytes=await readBytes(admin,selectedIfc);
       let ifcText=ifcBytes.toString('utf8');
-      if (/\\.(ifczip|zip)$/i.test(selectedIfc.name)) {
+      if (/\.(ifczip|zip)$/i.test(selectedIfc.name)) {
         const archive=await JSZip.loadAsync(ifcBytes);
-        const entries=Object.values(archive.files).filter(x=>!x.dir && /\\.ifc$/i.test(x.name));
+        const entries=Object.values(archive.files).filter(x=>!x.dir && /\.ifc$/i.test(x.name));
         if (entries.length !== 1) return fail(res,400,entries.length ? 'O pacote contém mais de um IFC. Envie um IFC por arquivo.' : 'O pacote não contém arquivo IFC.');
         ifcText=await entries[0].async('string');
       }
@@ -167,7 +167,7 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
       if(unnamed.length) addFinding(findings,{kind:'Qualidade de dados IFC',severity:'Baixa',discipline:'BIM',source:selectedIfc.name,evidence:unnamed.length+' elementos sem nome no campo IfcRoot.Name.',analysis:'Elementos IFC sem nome dificultam rastreabilidade por descrição.',action:'Conferir classificação, nome e propriedades dos elementos no modelo de autoria.',status:'Confirmado no arquivo IFC'});
       const codeOccurrences={};
       for(const doc of docs) {
-        const matches=(doc.texts||[]).join(' ').match(/\\b(?:PA|PM|J|PJ|PE|PV|P|J)\\s*[-_]?\\s*\\d{1,3}\\b/gi)||[];
+        const matches=(doc.texts||[]).join(' ').match(/\b(?:PA|PM|J|PJ|PE|PV|P|J)\s*[-_]?\s*\d{1,3}\b/gi)||[];
         for(const code of matches) (codeOccurrences[code.toUpperCase()] ||= []).push(doc.name);
       }
       const ifcNames=norm(ifc.elements.map(x=>x.name).join(' '));
@@ -176,7 +176,7 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
       }
       const doorCount=counts.IFCDOOR||0, windowCount=counts.IFCWINDOW||0;
       if(doorCount||windowCount) addFinding(findings,{kind:'Inventário de esquadrias IFC',severity:'Informativa',discipline:'Arquitetura',source:selectedIfc.name,evidence:'IFCDOOR: '+doorCount+'; IFCWINDOW: '+windowCount+'.',analysis:'Contagem de instâncias IFC identificadas. Não equivale à contagem de tipos/códigos do quadro DXF.',action:'Usar a aba Inventário IFC para cruzar cada instância com o quadro e a planta.',status:'Informativo — cruzamento manual por código'});
-      const headerMatch=ifcText.match(/FILE_DESCRIPTION\\s*\\(\\s*\\((.*?)\\)\\s*,/s);
+      const headerMatch=ifcText.match(/FILE_DESCRIPTION\s*\(\s*\((.*?)\)\s*,/s);
       const header=headerMatch?headerMatch[1].replace(/'/g,'').slice(0,1200):'Cabeçalho de exportação não identificado.';
       const excel=workbookBase64(project,docs,{...ifc,header},findings,allDims,textRows);
       return res.json({
