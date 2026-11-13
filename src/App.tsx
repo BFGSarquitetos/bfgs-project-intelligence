@@ -96,6 +96,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [dxfResults, setDxfResults] = useState<any[]>([]);
+  const [integratedReview, setIntegratedReview] = useState<any>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [issueDraft, setIssueDraft] = useState({
     title: '',
@@ -128,6 +129,7 @@ export default function App() {
     setSelected(project);
     setActive('project');
     setDxfResults([]);
+    setIntegratedReview(null);
     setIssues([]);
     setIssueDraft({
       title: '',
@@ -430,25 +432,34 @@ export default function App() {
     }
   }
 
-  async function prepareChatGPTReview() {
+  async function runIntegratedReview() {
     if (!selected) return;
     setBusy(true);
-    setNotice('Lendo os arquivos e montando o pacote técnico BFGS…');
+    setIntegratedReview(null);
+    setNotice('Executando análise documental e cruzamento DXF × IFC no portal BFGS…');
     try {
-      const r = await api.post('/api/review/package', { projectId: selected.id });
-      const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: 'application/json;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = (selected.code || 'projeto') + '-pacote-analise-chatgpt.json';
-      a.click();
-      URL.revokeObjectURL(url);
-      setNotice('Pacote preparado: ' + r.data.analyzedSourceCount + ' fontes extraídas. Anexe o JSON a uma conversa do ChatGPT e solicite a análise crítica conforme o checklist BFGS.');
+      const r = await api.post('/api/review/complete', { projectId: selected.id });
+      setIntegratedReview(r.data);
+      setNotice(r.data.message || 'Análise integrada concluída no portal.');
     } catch (e: any) {
-      setNotice('Não foi possível preparar o pacote: ' + (e.message || 'erro desconhecido'));
+      setNotice('Não foi possível concluir a análise integrada: ' + (e?.response?.data?.error || e.message || 'erro desconhecido'));
     } finally {
       setBusy(false);
     }
+  }
+
+  function downloadIntegratedExcel() {
+    if (!selected || !integratedReview?.base64) return;
+    const blob = new Blob(
+      [Uint8Array.from(atob(integratedReview.base64), c => c.charCodeAt(0))],
+      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (selected.code || 'projeto') + '-compatibilizacao-DXF-IFC.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function exportExcel() {
@@ -1115,10 +1126,34 @@ export default function App() {
                 <span>{projectFiles.length} arquivos</span>
               </div>
               <div className="toolbar">
-                <button className="primary" type="button" disabled={busy || !projectFiles.length} onClick={prepareChatGPTReview}>
-                  <ClipboardCheck size={15} /> Preparar análise para ChatGPT
+                <button className="primary" type="button" disabled={busy || !projectFiles.some(f => f.kind === 'DXF' || f.name.toLowerCase().endsWith('.dxf')) || !projectFiles.some(f => f.kind === 'IFC' || /\\.(ifc|ifczip)$/i.test(f.name))} onClick={runIntegratedReview}>
+                  <ClipboardCheck size={15} /> Executar análise completa DXF + IFC
                 </button>
               </div>
+              {integratedReview && (
+                <div className="report-box">
+                  <div className="report-top">
+                    <b><CheckCircle2 size={16} /> Análise integrada concluída</b>
+                    <span>{integratedReview.findings?.length || 0} apontamentos</span>
+                  </div>
+                  <p>{integratedReview.dxfCount} DXF(s) · {integratedReview.ifcElements} elementos IFC · {integratedReview.dimensions} cotas nativas reconhecidas</p>
+                  {(integratedReview.findings || []).map((item: any, index: number) => (
+                    <div className="finding" key={index}>
+                      <span className="finding-severity">{item.severity}</span>
+                      <b>{item.title || item.analysis}</b>
+                      <small>{item.source} · {item.status}</small>
+                      <p>{item.evidence}</p>
+                      <small>{item.action}</small>
+                    </div>
+                  ))}
+                  {(integratedReview.limitations || []).map((item: string, index: number) => (
+                    <small key={index}>Limitação: {item}</small>
+                  ))}
+                  <button className="primary wide" type="button" onClick={downloadIntegratedExcel}>
+                    <Download size={16} /> Baixar Excel de compatibilização
+                  </button>
+                </div>
+              )}
               {projectFiles.some(file => file.kind === 'DXF' || file.name.toLowerCase().endsWith('.dxf')) && (
                 <div className="toolbar">
                   <button
