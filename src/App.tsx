@@ -436,13 +436,13 @@ export default function App() {
     if (!selected) return;
     setBusy(true);
     setIntegratedReview(null);
-    setNotice('Executando análise documental e cruzamento DXF × IFC no portal BFGS…');
+    setNotice('Executando revisão documental exclusivamente dos arquivos DXF…');
     try {
       const r = await api.post('/api/review/complete', { projectId: selected.id });
       setIntegratedReview(r.data);
-      setNotice(r.data.message || 'Análise integrada concluída no portal.');
+      setNotice(r.data.message || 'Revisão documental dos DXFs concluída.');
     } catch (e: any) {
-      setNotice('Não foi possível concluir a análise integrada: ' + (e?.response?.data?.error || e.message || 'erro desconhecido'));
+      setNotice('Não foi possível concluir a revisão documental DXF: ' + (e?.response?.data?.error || e.message || 'erro desconhecido'));
     } finally {
       setBusy(false);
     }
@@ -457,7 +457,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = (selected.code || 'projeto') + '-compatibilizacao-DXF-IFC.xlsx';
+    a.download = (selected.code || 'projeto') + '-revisao-documental-DXF.xlsx';
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -871,25 +871,23 @@ export default function App() {
                   <span className="badge">DXF</span>
                 </div>
                 <p>
-                  Envie os arquivos de documentação do projeto: DXF das disciplinas
-                  e modelo BIM em IFC. Os arquivos serão identificados pelo formato
-                  e encaminhados automaticamente para a etapa de análise correspondente.
+                  Envie somente a documentação técnica em DXF das disciplinas.
+                  A revisão documental considera exclusivamente os arquivos DXF;
+                  modelos IFC não são utilizados nesta etapa.
                 </p>
                 <label className="upload-zone">
                   <Upload />
-                  <b>Adicionar documentos DXF e IFC</b>
-                  <span>Selecione vários .dxf, .ifc ou .ifczip; ZIP de disciplinas DXF também é aceito</span>
+                  <b>Adicionar documentação DXF</b>
+                  <span>Selecione um ou vários arquivos .dxf; ZIP com DXFs das disciplinas também é aceito</span>
                   <input
                     type="file"
-                    accept=".dxf,.ifc,.ifczip,.zip"
+                    accept=".dxf,.zip"
                     multiple
                     disabled={busy}
                     onChange={async e => {
                       const files = Array.from(e.target.files || []);
                       for (const file of files) {
-                        const extension = file.name.split('.').pop()?.toLowerCase() || '';
-                        const kind = ['ifc', 'ifczip'].includes(extension) ? 'IFC' : 'DXF';
-                        await uploadFile(file, 'project', kind);
+                        await uploadFile(file, 'project', 'DXF');
                       }
                       e.target.value = '';
                     }}
@@ -1135,7 +1133,7 @@ export default function App() {
               {integratedReview && (
                 <div className="report-box">
                   <div className="report-top">
-                    <b><CheckCircle2 size={16} /> Análise integrada concluída</b>
+                    <b><CheckCircle2 size={16} /> Revisão documental DXF concluída</b>
                     <span>{integratedReview.findings?.length || 0} apontamentos</span>
                   </div>
                   <p>{integratedReview.dxfCount} DXF(s) analisados · {integratedReview.dimensions} cotas nativas reconhecidas</p>
@@ -1152,7 +1150,7 @@ export default function App() {
                     <small key={index}>Limitação: {item}</small>
                   ))}
                   <button className="primary wide" type="button" onClick={downloadIntegratedExcel}>
-                    <Download size={16} /> Baixar Excel de compatibilização
+                    <Download size={16} /> Baixar Excel da revisão documental
                   </button>
                 </div>
               )}
