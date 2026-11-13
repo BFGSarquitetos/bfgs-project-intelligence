@@ -871,23 +871,25 @@ export default function App() {
                   <span className="badge">DXF</span>
                 </div>
                 <p>
-                  Envie vários arquivos DXF, um por disciplina. Cada arquivo será
-                  analisado separadamente e os resultados serão reunidos em uma
-                  única planilha, mantendo o nome de origem de cada disciplina.
+                  Envie os arquivos de documentação do projeto: DXF das disciplinas
+                  e modelo BIM em IFC. Os arquivos serão identificados pelo formato
+                  e encaminhados automaticamente para a etapa de análise correspondente.
                 </p>
                 <label className="upload-zone">
                   <Upload />
-                  <b>Selecionar DXFs das disciplinas</b>
-                  <span>Selecione vários .dxf ou um .zip com as disciplinas</span>
+                  <b>Adicionar documentos DXF e IFC</b>
+                  <span>Selecione vários .dxf, .ifc ou .ifczip; ZIP de disciplinas DXF também é aceito</span>
                   <input
                     type="file"
-                    accept=".dxf,.zip"
+                    accept=".dxf,.ifc,.ifczip,.zip"
                     multiple
                     disabled={busy}
                     onChange={async e => {
                       const files = Array.from(e.target.files || []);
                       for (const file of files) {
-                        await uploadFile(file, 'project', 'DXF');
+                        const extension = file.name.split('.').pop()?.toLowerCase() || '';
+                        const kind = ['ifc', 'ifczip'].includes(extension) ? 'IFC' : 'DXF';
+                        await uploadFile(file, 'project', kind);
                       }
                       e.target.value = '';
                     }}
