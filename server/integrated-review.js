@@ -1,12 +1,13 @@
-import JSZip from 'jszip';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import * as XLSX from 'xlsx';
-import { parseDxf, parseIfc } from './review.js';
+import { parseDxf } from './review.js';
 
 const BUCKET = 'bfgs-project-files';
 const now = () => new Date().toISOString();
-const norm = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const norm = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
 const unique = values => [...new Set(values)];
-const dimText = value => String(value || '').replace(/\s+/g, ' ').trim();
+const clean = value => String(value || '').replace(/\s+/g,' ').trim();
 
 async function getProjectFiles(admin, userId, projectId) {
   const { data: project, error: pe } = await admin.from('bfgs_projects')
@@ -27,102 +28,120 @@ async function readBytes(admin, file) {
 function extractDimensionRecords(text) {
   const lines = text.split(/\r?\n/), result = [];
   let current = null;
-  for (let i = 0; i + 1 < lines.length; i += 2) {
-    const code = Number(lines[i].trim()), value = lines[i + 1].trimEnd();
-    if (!Number.isFinite(code)) continue;
-    if (code === 0) {
-      if (current?.type === 'DIMENSION') {
-        const pairs = current.pairs;
-        const get = n => pairs.filter(p => p[0] === n).map(p => p[1]);
-        const raw = get(1).join('') || get(42).join('');
-        const measured = Number(get(42)[0]);
-        result.push({
-          type: get(70)[0] || '',
-          block: get(2)[0] || '',
-          override: dimText(raw),
-          measured: Number.isFinite(measured) ? measured : null,
-          style: get(3)[0] || '',
-          layer: get(8)[0] || '0'
-        });
-      }
-      current = { type: value.trim(), pairs: [] };
-    } else if (current) current.pairs.push([code, value]);
-  }
-  if (current?.type === 'DIMENSION') {
+  const flush = () => {
+    if (current?.type !== 'DIMENSION') return;
     const pairs = current.pairs, get = n => pairs.filter(p => p[0] === n).map(p => p[1]);
+    const raw = get(1).join('') || get(42).join('');
     const measured = Number(get(42)[0]);
-    result.push({ type: get(70)[0] || '', block: get(2)[0] || '', override: dimText(get(1).join('') || get(42).join('')), measured: Number.isFinite(measured) ? measured : null, style: get(3)[0] || '', layer: get(8)[0] || '0' });
+    result.push({ type:get(70)[0] || '', block:get(2)[0] || '', override:clean(raw),
+      measured:Number.isFinite(measured) ? measured : null, style:get(3)[0] || '', layer:get(8)[0] || '0' });
+  };
+  for (let i=0;i+1<lines.length;i+=2) {
+    const code=Number(lines[i].trim()), value=lines[i+1].trimEnd();
+    if (!Number.isFinite(code)) continue;
+    if (code===0) { flush(); current={type:value.trim(),pairs:[]}; }
+    else if(current) current.pairs.push([code,value]);
   }
+  flush();
   return result;
 }
-function extractNumericNotes(texts) {
-  const out = [];
-  for (const text of texts) {
-    const s = dimText(text);
-    if (/\b(?:cota|dimens[aã]o|largura|altura|comprimento|\d+(?:[.,]\d+)\s*(?:mm|cm|m)\b)/i.test(s)) {
-      const nums = s.match(/\d+(?:[.,]\d+)?\s*(?:mm|cm|m)?/gi) || [];
-      if (nums.length) out.push({ text: s, values: nums.join(' | ') });
+function extractChecklistRows(checklist, docs) {
+  const allTexts = docs.flatMap(d => d.texts.map(text => ({file:d.name,text,normalized:norm(text)})));
+  const rows = [];
+  for (const section of checklist.sections || []) {
+    for (const item of section.items || []) {
+      const words = norm(item).split(' ').filter(w => w.length >= 4 && !['para','quando','entre','todos','todas','tipo','nome','dados'].includes(w));
+      const matches = allTexts.map(t => {
+        const exact = t.normalized.includes(norm(item));
+        const hits = words.filter(w => t.normalized.includes(w));
+        return {...t,score: exact ? 1 : (words.length ? hits.length / words.length : 0),hits};
+      }).filter(t => t.score >= 0.45 || (t.score >= 0.3 && t.hits.length >= 2))
+        .sort((a,b)=>b.score-a.score).slice(0,5);
+      rows.push({
+        section:section.title, item,
+        status:matches.length ? 'Indício textual localizado' : 'Não localizado no texto extraído',
+        evidence:matches.map(m=>m.file+': '+m.text.slice(0,500)).join(' | '),
+        note:matches.length
+          ? 'A ocorrência textual não comprova atendimento do requisito; conferir conteúdo gráfico, dimensões e contexto.'
+          : 'A ausência no texto extraído não comprova ausência na prancha; exige conferência visual.'
+      });
     }
   }
-  return out;
+  return rows;
 }
-function addFinding(list, item) {
-  const key = [item.analysis || item.title, item.source, item.status].join('|');
-  if (!list.some(x => [x.analysis || x.title, x.source, x.status].join('|') === key)) list.push(item);
-}
-function workbookBase64(project, docs, ifc, findings, dims, textRows) {
+function workbookBase64(project, docs, findings, dims, checklistRows, textRows) {
   const wb = XLSX.utils.book_new();
   const sheet = (name, rows, widths) => {
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws['!cols'] = widths.map(wch => ({ wch }));
-    ws['!autofilter'] = { ref: 'A1:' + XLSX.utils.encode_col(rows[0].length - 1) + Math.max(1, rows.length) };
+    if (rows.length > 1) ws['!autofilter'] = { ref: 'A1:' + XLSX.utils.encode_col(rows[0].length - 1) + rows.length };
+    ws['!freeze'] = {xSplit:0,ySplit:1};
     XLSX.utils.book_append_sheet(wb, ws, name);
   };
-  const high = findings.filter(x => x.severity === 'Alta' || x.severity === 'Crítica').length;
+  const count = status => findings.filter(x=>x.status===status).length;
+  const checklistFound = checklistRows.filter(x=>x.status==='Indício textual localizado').length;
+  const checklistNotFound = checklistRows.length-checklistFound;
+  const high = findings.filter(x => ['Alta','Crítica'].includes(x.severity)).length;
   sheet('Resumo', [
     ['BFGS PROJECT INTELLIGENCE — REVISÃO DOCUMENTAL DXF'],
     ['Projeto', project.name], ['Código', project.code], ['Cliente', project.client || 'Não informado'],
     ['Fase', project.phase || 'Não informada'], ['Data da análise', now()],
-    ['DXFs lidos', docs.length], ['Entidades DXF', docs.reduce((n, d) => n + d.entityCount, 0)],
-    ['Entidades DIMENSION nativas', dims.length], ['Elementos IFC com GUID', ifc.elements.length],
-    ['Classes IFC distintas', unique(ifc.elements.map(x => x.ifcClass)).length],
-    ['Apontamentos / alertas', findings.length], ['Alta / crítica', high],
-    [], ['CRITÉRIO'], ['A análise automática registra evidências estruturais e cruzamentos rastreáveis. Não substitui validação visual, normativa ou conferência geométrica especializada.'],
-    ['LIMITAÇÃO IFC', ifc.header || 'Cabeçalho de exportação não identificado no arquivo.']
-  ], [36, 110]);
-  sheet('Incompatibilidades', [
-    ['ID','Classificação','Gravidade','Disciplina','Documento / referência','Evidência','Análise','Ação recomendada','Status'],
-    ...findings.map((x,i)=>['BFGS-'+String(i+1).padStart(3,'0'),x.kind,x.severity,x.discipline,x.source,x.evidence,x.analysis,x.action,x.status])
-  ], [16,24,14,20,36,65,65,60,28]);
+    ['DXFs analisados', docs.length], ['Entidades lidas', docs.reduce((n,d)=>n+d.entityCount,0)],
+    ['Layers identificados', unique(docs.flatMap(d=>d.layerCounts.map(x=>x[0]))).length],
+    ['Textos interpretados', docs.reduce((n,d)=>n+d.texts.length,0)],
+    ['Cotas DIMENSION nativas', dims.length],
+    ['Itens do Checklist BFGS avaliados por evidência textual', checklistRows.length],
+    ['Itens com indício textual', checklistFound], ['Itens sem indício textual extraído', checklistNotFound],
+    ['Apontamentos documentais', findings.length], ['Gravidade alta/crítica', high],
+    [], ['ESCOPO E CRITÉRIO'],
+    ['A análise cruza evidências textuais e estruturais dos DXFs com o Checklist BFGS. “Indício textual localizado” não equivale a conformidade.'],
+    ['Itens não encontrados no texto não são tratados como falha: podem estar representados graficamente e exigem conferência visual.'],
+    ['Não são realizadas nesta etapa aprovação normativa, leitura visual integral, medição de geometria em tela ou colisão entre modelos.'],
+    ['IFC', 'Não é recebido nem utilizado na revisão documental DXF.']
+  ], [48,110]);
+  sheet('Apontamentos', [
+    ['ID','Tipo','Gravidade','Arquivo','Evidência extraída','Interpretação','Ação recomendada','Status'],
+    ...findings.map((x,i)=>['BFGS-'+String(i+1).padStart(3,'0'),x.kind,x.severity,x.source,x.evidence,x.analysis,x.action,x.status])
+  ], [16,28,14,38,70,70,70,34]);
+  sheet('Checklist BFGS', [
+    ['Seção','Requisito do checklist','Resultado da busca textual','Evidência localizada','Orientação de validação'],
+    ...checklistRows.map(x=>[x.section,x.item,x.status,x.evidence,x.note])
+  ], [34,62,34,100,90]);
   sheet('Inventário DXF', [
-    ['Arquivo','Unidades','Versão','Entidades','Layers','Textos','DIMENSION nativas','XREF / Raster','Tipo de entidade','Quantidade'],
-    ...docs.flatMap(d => [
-      [d.name,d.units,d.version,d.entityCount,d.layerCount,d.textCount,d.dimensions.length,d.references.join(' | '),'',''],
-      ...d.entityCounts.map(x=>['','','','','','','','',x[0],x[1]])
-    ])
-  ], [34,18,16,16,12,14,20,48,28,14]);
+    ['Arquivo','Unidades','Versão','Entidades','Layers','Textos','Cotas nativas','XREFs','Rasters','Disciplinas reconhecidas'],
+    ...docs.map(d=>[d.name,d.units,d.version,d.entityCount,d.layerCount,d.textCount,d.dimensions.length,d.xrefs.join(' | '),d.rasters.join(' | '),d.disciplineEvidence.map(x=>x.discipline).join(', ')])
+  ], [38,18,16,14,12,12,16,45,45,55]);
   sheet('Cotas DXF', [
-    ['Arquivo','Layer','Tipo DIMENSION','Texto / override','Medida real (unidade DXF)','Bloco','Estilo'],
+    ['Arquivo','Layer','Tipo DIMENSION','Texto / override','Medida (unidade DXF)','Bloco','Estilo'],
     ...dims.map(x=>[x.file,x.layer,x.type,x.override,x.measured,x.block,x.style])
-  ], [34,18,18,34,28,24,20]);
-  sheet('Textos e números DXF', [
-    ['Arquivo','Texto extraído','Números identificados'],
-    ...textRows.map(x=>[x.file,x.text,x.values])
-  ], [34,100,48]);
-  sheet('Inventário IFC', [
-    ['STEP ID','Classe IFC','GlobalId','Nome'],
-    ...ifc.elements.map(x=>[x.stepId,x.ifcClass,x.guid,x.name])
-  ], [14,32,28,70]);
-  const classes = Object.entries(ifc.elements.reduce((o,x)=>{o[x.ifcClass]=(o[x.ifcClass]||0)+1;return o;},{})).sort((a,b)=>b[1]-a[1]);
-  sheet('Classes IFC', [['Classe IFC','Quantidade'],...classes], [36,18]);
+  ], [38,18,18,42,28,24,20]);
+  sheet('Evidências textuais', [
+    ['Arquivo','Texto interpretado'],
+    ...textRows.map(x=>[x.file,x.text])
+  ], [38,140]);
+  sheet('Layers e entidades', [
+    ['Arquivo','Tipo de registro','Nome','Quantidade'],
+    ...docs.flatMap(d=>[
+      ...d.layerCounts.map(x=>[d.name,'Layer',x[0],x[1]]),
+      ...d.entityCounts.map(x=>[d.name,'Entidade',x[0],x[1]])
+    ])
+  ], [38,18,45,16]);
+  sheet('Referências externas', [
+    ['Arquivo','Tipo','Referência','Ação'],
+    ...docs.flatMap(d=>[
+      ...d.xrefs.map(x=>[d.name,'XREF',x,'Confirmar se o arquivo referenciado acompanha a entrega.']),
+      ...d.rasters.map(x=>[d.name,'Raster',x,'Confirmar incorporação ou envio do arquivo externo.'])
+    ])
+  ], [38,16,65,70]);
   sheet('Limitações', [
     ['Tema','Resultado','Impacto'],
-    ['Cotas DXF', dims.length ? 'Foram lidas entidades DIMENSION nativas e seus valores de medida quando presentes.' : 'Nenhuma entidade DIMENSION nativa reconhecida nos DXFs.', 'Cotas explodidas em linhas/textos exigem interpretação adicional e não são equivalentes a cotas nativas.'],
-    ['Geometria IFC','O extrator identifica classe, GUID e nome dos elementos IFC.', 'Esta versão não executa colisão geométrica 3D nem reconstrói sólidos/aberturas.'],
-    ['Quantitativos IFC','Quantidades só são comparáveis se propriedades/quantidades estiverem exportadas no IFC.', 'Ausência de propriedade não significa divergência.'],
-    ['Análise normativa','Itens legais, acessibilidade, segurança e aprovação exigem validação profissional.', 'Não emitir aprovação normativa automática.'],
-    ['Documentos ausentes','A análise utiliza somente os arquivos armazenados neste projeto.', 'Arquivo não enviado é registrado como não disponível, nunca presumido conforme.']
-  ], [26,80,85]);
+    ['Leitura textual','Textos DXF são normalizados para remover códigos de formatação antes da busca.','Textos em blocos, atributos especiais ou fontes SHX podem exigir validação no CAD.'],
+    ['Checklist','Busca de indícios textuais por requisito do Checklist BFGS.','Não comprova dimensões, posicionamento, legibilidade ou atendimento gráfico.'],
+    ['Cotas','Leitura de entidades DIMENSION nativas.','Cotas explodidas podem não ser reconhecidas como dimensão; não são consideradas ausentes por isso.'],
+    ['Geometria','Inventário de entidades, layers e referências.','Não executa medição geométrica completa nem detecção de colisões.'],
+    ['Normas e legislação','Itens normativos são relacionados pelo checklist quando aplicáveis.','Exige análise profissional com legislação e normas vigentes.'],
+    ['Documentos ausentes','A análise utiliza somente os DXFs armazenados no projeto.','Não presume conformidade de disciplinas ou arquivos não enviados.']
+  ], [28,90,90]);
   return XLSX.write(wb,{type:'base64',bookType:'xlsx'});
 }
 
@@ -131,37 +150,68 @@ export function registerIntegratedReviewRoutes(app, { admin, requireUser, fail }
     try {
       const { project, files } = await getProjectFiles(admin, req.user.id, String(req.body?.projectId || ''));
       const dxfFiles = files.filter(f => /\.dxf$/i.test(f.name) || f.kind === 'DXF');
-      const ifcFiles = files.filter(f => /\.(ifc|ifczip)$/i.test(f.name) || f.kind === 'IFC');
-      if (!dxfFiles.length) return fail(res,400,'Envie ao menos um DXF para iniciar a análise documental.');
-      const docs=[], allDims=[], textRows=[], findings=[], limitations=[];
+      if (!dxfFiles.length) return fail(res,400,'Envie ao menos um DXF para iniciar a revisão documental.');
+      const checklistPath = path.join(process.cwd(),'config','checklist-bfgs-revisao-02.json');
+      const checklist = JSON.parse(await fs.readFile(checklistPath,'utf8'));
+      const docs=[], allDims=[], findings=[], limitations=[], textRows=[];
       for (const file of dxfFiles) {
         try {
           const bytes=await readBytes(admin,file), source=bytes.toString('latin1'), parsed=parseDxf(source);
           const dimensions=extractDimensionRecords(source);
-          const refs=[...(parsed.findings||[]).filter(x=>/refer[eê]ncia|raster/i.test(x.title)).map(x=>x.source)];
-          docs.push({name:file.name,units:parsed.units,version:parsed.version,entityCount:parsed.entityCount,layerCount:parsed.layerCount,textCount:parsed.textEntities,dimensions,entityCounts:parsed.entityCounts||[],references:refs,texts:parsed.texts||[]});
+          docs.push({
+            name:file.name,units:parsed.units,version:parsed.version,entityCount:parsed.entityCount,
+            layerCount:parsed.layerCount,textCount:parsed.textEntities,dimensions,
+            entityCounts:parsed.entityCounts||[],layerCounts:parsed.layerCounts||[],texts:parsed.texts||[],
+            xrefs:parsed.xrefs||[],rasters:parsed.rasters||[],disciplineEvidence:parsed.disciplineEvidence||[],
+            titleBlockEvidence:parsed.titleBlockEvidence||[],scaleMatches:parsed.scaleMatches||[],dateMatches:parsed.dateMatches||[]
+          });
           for (const dim of dimensions) allDims.push({...dim,file:file.name});
-          for (const note of extractNumericNotes(parsed.texts||[])) textRows.push({file:file.name,...note});
-          for (const finding of parsed.findings||[]) addFinding(findings,{kind:'Sinal estrutural DXF',severity:finding.severity||'Baixa',discipline:'A identificar',source:file.name,evidence:finding.source||finding.title,analysis:finding.title,action:finding.recommendation||'Conferir no arquivo de origem.',status:finding.status||'Conferência necessária'});
-          const placeholders=(parsed.texts||[]).filter(t=>/A DEFINIR|TBD|MDF\s*XX|MODELO\s*A\s*DEFINIR|\bXX\b/i.test(t));
-          if(placeholders.length) addFinding(findings,{kind:'Pendência documental',severity:'Média',discipline:'A identificar',source:file.name,evidence:unique(placeholders).slice(0,20).join(' | '),analysis:'Texto provisório ou campo não definido identificado no DXF.',action:'Completar a especificação e conferir as pranchas relacionadas.',status:'Confirmado no texto extraído'});
-        } catch(e) { limitations.push(file.name+': falha de leitura ('+String(e.message||'erro')+').'); }
+          for (const text of parsed.texts||[]) textRows.push({file:file.name,text});
+          for (const finding of parsed.findings||[]) {
+            const key=[finding.title,file.name,finding.source].join('|');
+            if(!findings.some(x=>x.key===key)) findings.push({
+              key,kind:'Verificação de arquivo',severity:finding.severity||'Informativa',
+              source:file.name,evidence:finding.source||finding.title,analysis:finding.title,
+              action:finding.recommendation||'Conferir no arquivo de origem.',status:finding.status||'Conferência necessária'
+            });
+          }
+          const textNorm=(parsed.texts||[]).map(norm);
+          const placeholders=(parsed.texts||[]).filter(t=>/\b(?:A DEFINIR|MODELO A DEFINIR|TBD|PENDENTE|XXXX+)\b/i.test(t)||/\b(?:D|E|J|P|R)-XX\b/i.test(t));
+          if(placeholders.length) {
+            const evidence=unique(placeholders).slice(0,25).join(' | ');
+            const key=['Campos provisórios',file.name,evidence].join('|');
+            if(!findings.some(x=>x.key===key)) findings.push({
+              key,kind:'Pendência documental',severity:'Média',source:file.name,evidence,
+              analysis:'Foram encontrados campos ou especificações explicitamente provisórios.',
+              action:'Verificar a aplicabilidade à fase do projeto e completar os campos antes da emissão final.',
+              status:'Possível pendência — validar fase'
+            });
+          }
+          const scales=parsed.scaleMatches||[];
+          if(scales.length>1 && unique(scales.map(norm)).length>1) findings.push({
+            key:'scale-'+file.name,kind:'Consistência documental',severity:'Baixa',source:file.name,
+            evidence:unique(scales).join(' | '),analysis:'Foram identificadas indicações textuais de escala diferentes na mesma prancha.',
+            action:'Conferir se as escalas distintas correspondem a vistas/detalhes diferentes ou se há divergência no carimbo.',
+            status:'Possível divergência — requer conferência'
+          });
+          if(!parsed.texts.length) limitations.push(file.name+': nenhum texto legível foi extraído; revisão textual insuficiente.');
+        } catch(e) {
+          limitations.push(file.name+': falha de leitura ('+String(e.message||'erro')+'). O arquivo foi excluído dos apontamentos.');
+        }
       }
-      // A revisão documental é exclusivamente DXF. O IFC é lido separadamente
-      // apenas no fluxo de compatibilização/geração BCF.
-      const ifc={projectGuid:'',elements:[]};
-      const header='IFC não utilizado nesta etapa. O modelo BIM é reservado para o fluxo BCF.';
-      const excel=workbookBase64(project,docs,{...ifc,header},findings,allDims,textRows);
+      if(!docs.length) return fail(res,422,'Nenhum DXF pôde ser interpretado. Verifique os arquivos e tente novamente.');
+      const checklistRows=extractChecklistRows(checklist,docs);
+      const excel=workbookBase64(project,docs,findings,allDims,checklistRows,textRows);
       return res.json({
         project:{name:project.name,code:project.code,phase:project.phase},
-        dxfCount:docs.length,ifcFile:null,ifcElements:0,
-        dimensions:allDims.length,findings,limitations,base64:excel,
-        generatedAt:now(),status:'analysis_complete',
-        message:'Revisão documental DXF concluída. O IFC não é necessário nesta etapa e será utilizado somente para vincular elementos e gerar BCF.'
+        dxfCount:docs.length,dimensions:allDims.length,findings:findings.map(({key,...x})=>x),
+        checklist:{total:checklistRows.length,textualEvidence:checklistRows.filter(x=>x.status==='Indício textual localizado').length,notLocated:checklistRows.filter(x=>x.status!=='Indício textual localizado').length},
+        limitations,base64:excel,generatedAt:now(),status:'analysis_complete',
+        message:'Revisão documental DXF concluída com leitura textual normalizada, inventário técnico e cruzamento de evidências com o Checklist BFGS. Os indícios não substituem conferência gráfica.'
       });
     } catch(e) {
       console.error('[integrated-review]', JSON.stringify({message:e.message||'unknown'}));
-      return fail(res,e.status||500,e.message||'Falha ao executar análise integrada.');
+      return fail(res,e.status||500,e.message||'Falha ao executar revisão documental DXF.');
     }
   });
 }
