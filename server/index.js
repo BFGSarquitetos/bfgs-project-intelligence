@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
 import JSZip from 'jszip';
 import { registerReviewRoutes } from './review.js';
-import { runExecutiveReview } from './executive-review.js';
+import { prepareExecutiveReviewPackage } from './executive-review.js';
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
@@ -263,13 +263,13 @@ app.post('/api/files/delete', requireUser, async (req, res) => {
 
 registerReviewRoutes(app, { admin, requireUser, fail });
 
-app.post('/api/review/executive', requireUser, async (req, res) => {
+app.post('/api/review/package', requireUser, async (req, res) => {
   try {
-    const result = await runExecutiveReview({ admin, userId: req.user.id, projectId: String(req.body?.projectId || '') });
+    const result = await prepareExecutiveReviewPackage({ admin, userId: req.user.id, projectId: String(req.body?.projectId || '') });
     return res.json(result);
   } catch (error) {
-    console.error('[executive-review] failed:', JSON.stringify({ status: error.status || 500, providerStatus: error.providerStatus || null, message: error.message || 'unknown' }));
-    return fail(res, error.status || 500, error.message || 'Falha na análise integrada.');
+    console.error('[executive-review-package] failed:', JSON.stringify({ status: error.status || 500, message: error.message || 'unknown' }));
+    return fail(res, error.status || 500, error.message || 'Falha ao preparar pacote de análise.');
   }
 });
 app.use(express.static('dist'));
