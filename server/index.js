@@ -282,4 +282,17 @@ app.use((error, _req, res, _next) => {
   return fail(res, 500, 'Erro interno do servidor.');
 });
 
+// Allow large IFC models while keeping the upload ceiling explicit.
+if (admin) {
+  admin.storage.updateBucket(BUCKET, { fileSizeLimit: 536870912 })
+    .then(({ error }) => {
+      if (error) {
+        console.error('[storage] Could not raise bucket file size limit:', error.message);
+      } else {
+        console.log('[storage] Bucket file size limit configured to 512 MiB.');
+      }
+    })
+    .catch(error => console.error('[storage] Bucket limit update failed:', error.message));
+}
+
 app.listen(PORT, () => console.log('BFGS API listening on port ' + PORT));
